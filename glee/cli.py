@@ -242,7 +242,7 @@ def init(
 
 @app.command()
 def review(
-    files: list[str] | None = typer.Argument(None, help="Files to review"),
+    path: str | None = typer.Argument(None, help="File or directory to review"),
     focus: str | None = typer.Option(None, "--focus", "-f", help="Focus areas (comma-separated: security, performance, etc.)"),
     reviewer: str | None = typer.Option(None, "--reviewer", "-r", help="Specific reviewer to use"),
 ) -> None:
@@ -258,6 +258,21 @@ def review(
     if not config:
         console.print("[red]Project not initialized. Run 'glee init' first.[/red]")
         raise typer.Exit(1)
+
+    # Resolve path to file list (default to current directory)
+    files: list[str] = []
+    p = Path(path) if path else Path.cwd()
+    if not p.exists():
+        console.print(f"[red]Path not found: {path}[/red]")
+        raise typer.Exit(1)
+    if p.is_file():
+        files = [str(p)]
+    elif p.is_dir():
+        # Get all files in directory (non-recursive)
+        files = [str(f) for f in p.iterdir() if f.is_file()]
+        if not files:
+            console.print(f"[yellow]No files found in {p}[/yellow]")
+            raise typer.Exit(1)
 
     # Get connected reviewers
     reviewers = get_connected_agents(role="reviewer")
@@ -288,7 +303,8 @@ def review(
 
     # Show review plan
     console.print("[bold]Review Plan[/bold]")
-    console.print(f"  Files: {', '.join(files) if files else 'current diff'}")
+    console.print(f"  Path: {p}")
+    console.print(f"  Files: {len(files)} file(s)")
     console.print(f"  Reviewers: {', '.join(r.get('name', 'unknown') for r in reviewers)}")
     if focus_list:
         console.print(f"  Focus: {', '.join(focus_list)}")
