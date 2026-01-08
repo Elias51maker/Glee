@@ -1,6 +1,7 @@
 """Glee MCP Server - Exposes Glee tools to Claude Code."""
 
-import os
+from typing import Any
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
@@ -83,7 +84,7 @@ async def list_tools() -> list[Tool]:
 
 
 @server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
     if name == "glee_status":
         return await _handle_status()
@@ -102,7 +103,7 @@ async def _handle_status() -> list[TextContent]:
     from glee.agents import registry
     from glee.config import get_connected_agents, get_project_config
 
-    lines = []
+    lines: list[str] = []
 
     # Global status
     lines.append("Glee Status")
@@ -149,10 +150,9 @@ async def _handle_status() -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-async def _handle_review(arguments: dict) -> list[TextContent]:
+async def _handle_review(arguments: dict[str, Any]) -> list[TextContent]:
     """Handle glee_review tool call."""
     import concurrent.futures
-    from pathlib import Path
 
     from glee.agents import registry
     from glee.config import get_connected_agents, get_project_config
@@ -164,19 +164,29 @@ async def _handle_review(arguments: dict) -> list[TextContent]:
     # Get reviewers
     reviewers = get_connected_agents(role="reviewer")
     if not reviewers:
-        return [TextContent(type="text", text="No reviewers connected. Use glee_connect to add reviewers.")]
+        # Show available agents so Claude can ask user which to use
+        lines: list[str] = ["No reviewers connected.", ""]
+        lines.append("Available agents:")
+        for cli_name in ["claude", "codex", "gemini"]:
+            agent = registry.get(cli_name)
+            status = "installed" if agent and agent.is_available() else "not installed"
+            lines.append(f"  - {cli_name}: {status}")
+        lines.append("")
+        lines.append("Ask the user which agent to use as a reviewer, then use glee_connect.")
+        lines.append('Example: glee_connect(command="codex", role="reviewer", focus="security")')
+        return [TextContent(type="text", text="\n".join(lines))]
 
     # Parse target - flexible input
-    target = arguments.get("target", ".")
+    target: str = arguments.get("target", ".")
 
     # Parse focus
-    focus_str = arguments.get("focus", "")
-    focus_list = [f.strip() for f in focus_str.split(",")] if focus_str else None
+    focus_str: str = arguments.get("focus", "")
+    focus_list: list[str] | None = [f.strip() for f in focus_str.split(",")] if focus_str else None
 
-    lines = [f"Reviewing with {len(reviewers)} reviewer(s)...", f"Target: {target}", ""]
+    lines: list[str] = [f"Reviewing with {len(reviewers)} reviewer(s)...", f"Target: {target}", ""]
 
     # Run reviews
-    def run_single_review(reviewer_config: dict) -> tuple[str, str | None, str | None]:
+    def run_single_review(reviewer_config: dict[str, Any]) -> tuple[str, str | None, str | None]:
         name = reviewer_config.get("name", "unknown")
         command = reviewer_config.get("command")
         agent = registry.get(command) if command else None
@@ -210,7 +220,7 @@ async def _handle_review(arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-async def _handle_connect(arguments: dict) -> list[TextContent]:
+async def _handle_connect(arguments: dict[str, Any]) -> list[TextContent]:
     """Handle glee_connect tool call."""
     from glee.agents import registry
     from glee.config import connect_agent, get_project_config
@@ -219,8 +229,8 @@ async def _handle_connect(arguments: dict) -> list[TextContent]:
     if not config:
         return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
 
-    command = arguments.get("command")
-    role = arguments.get("role")
+    command: str | None = arguments.get("command")
+    role: str | None = arguments.get("role")
 
     if command not in registry.agents:
         return [TextContent(type="text", text=f"Unknown command: {command}. Available: claude, codex, gemini")]
@@ -228,10 +238,10 @@ async def _handle_connect(arguments: dict) -> list[TextContent]:
     if role not in ("coder", "reviewer", "judge"):
         return [TextContent(type="text", text=f"Invalid role: {role}. Valid: coder, reviewer, judge")]
 
-    domain_str = arguments.get("domain", "")
-    focus_str = arguments.get("focus", "")
-    domain_list = [d.strip() for d in domain_str.split(",")] if domain_str else None
-    focus_list = [f.strip() for f in focus_str.split(",")] if focus_str else None
+    domain_str: str = arguments.get("domain", "")
+    focus_str: str = arguments.get("focus", "")
+    domain_list: list[str] | None = [d.strip() for d in domain_str.split(",")] if domain_str else None
+    focus_list: list[str] | None = [f.strip() for f in focus_str.split(",")] if focus_str else None
 
     agent_config = connect_agent(
         command=command,
@@ -249,7 +259,7 @@ async def _handle_connect(arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-async def _handle_disconnect(arguments: dict) -> list[TextContent]:
+async def _handle_disconnect(arguments: dict[str, Any]) -> list[TextContent]:
     """Handle glee_disconnect tool call."""
     from glee.config import disconnect_agent, get_project_config
 
@@ -257,7 +267,7 @@ async def _handle_disconnect(arguments: dict) -> list[TextContent]:
     if not config:
         return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
 
-    agent_name = arguments.get("agent")
+    agent_name: str | None = arguments.get("agent")
     if not agent_name:
         return [TextContent(type="text", text="Agent name required.")]
 

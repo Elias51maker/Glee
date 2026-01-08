@@ -10,7 +10,6 @@ from uuid import uuid4
 
 from loguru import logger
 
-from glee.db.schema import SQLITE_SCHEMAS
 from glee.db.sqlite import get_sqlite_connection, init_sqlite
 
 if TYPE_CHECKING:
@@ -207,7 +206,7 @@ class SQLiteLogHandler:
         import json
 
         record = message.record
-        extra_json = json.dumps(record["extra"]) if record["extra"] else None
+        _extra_json = json.dumps(record["extra"]) if record["extra"] else None  # Reserved for future use
 
         self.conn.execute(
             """

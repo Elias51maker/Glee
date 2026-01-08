@@ -106,8 +106,8 @@ def register_mcp_server(project_path: str) -> bool:
     """
     import json
 
-    project_path = Path(project_path)
-    mcp_config_path = project_path / ".mcp.json"
+    project_dir = Path(project_path)
+    mcp_config_path = project_dir / ".mcp.json"
 
     # Load existing config or create empty
     if mcp_config_path.exists():
@@ -156,16 +156,17 @@ def init_project(project_path: str, project_id: str | None = None, agent: str | 
     config_path = glee_dir / "config.yml"
 
     # Check for existing config if not forcing new ID
-    existing_config: dict[str, Any] | None = None
+    existing_config: dict[str, Any] = {}
     existing_id: str | None = None
     if config_path.exists():
         with open(config_path) as f:
             existing_config = yaml.safe_load(f) or {}
-            existing_id = existing_config.get("project", {}).get("id") if not project_id else None
+            if not project_id:
+                existing_id = existing_config.get("project", {}).get("id")
 
     # Preserve existing agents if re-initializing
-    existing_agents = existing_config.get("agents", []) if existing_config else []
-    existing_dispatch = existing_config.get("dispatch", {"coder": "first", "reviewer": "all"}) if existing_config else {"coder": "first", "reviewer": "all"}
+    existing_agents: list[dict[str, Any]] = existing_config.get("agents", [])
+    existing_dispatch: dict[str, str] = existing_config.get("dispatch", {"coder": "first", "reviewer": "all"})
 
     config: dict[str, Any] = {
         "project": {
