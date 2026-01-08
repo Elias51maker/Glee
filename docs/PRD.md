@@ -19,30 +19,41 @@ The solution isn't another coding agent. It's an **orchestration layer** that co
 Glee is the **orchestration hub** for AI coding agents.
 
 ```
-           ┌─────────────────────────────────┐
-           │             Glee                │
-           │  ┌─────────┐ ┌───────────────┐ │
-           │  │ Memory  │ │ Orchestration │ │
-           │  └─────────┘ └───────────────┘ │
-           └──────────────┬──────────────────┘
-                ╱         │         ╲
-         ┌──────┐    ┌──────┐    ┌──────┐
-         │Claude│    │Codex │    │Gemini│
-         │coder │    │review│    │frontend│
-         └──────┘    └──────┘    └──────┘
+                    ┌─────────────────────────────────┐
+                    │             Glee                │
+                    │  ┌─────────┐ ┌───────────────┐ │
+                    │  │ Memory  │ │ Orchestration │ │
+                    │  └─────────┘ └───────────────┘ │
+                    └──────────────┬──────────────────┘
+                                   │
+        ┌──────────────────────────┼──────────────────────────┐
+        │                          │                          │
+        ▼                          ▼                          ▼
+   ┌─────────┐              ┌─────────────┐             ┌──────────┐
+   │ Coders  │              │  Reviewers  │             │ Auditors │
+   ├─────────┤              ├─────────────┤             ├──────────┤
+   │ Claude  │              │   Codex     │             │ Claude   │
+   │ Gemini  │              │   Claude    │             │ (security)│
+   │ Codex   │              │   Gemini    │             └──────────┘
+   └─────────┘              └─────────────┘
 ```
 
-**Key principle**: Glee connects to agents. Agents don't connect to Glee.
+**Key principles**:
+- Glee connects to agents. Agents don't connect to Glee.
+- **Multiple coders**: Different agents for different parts (backend, frontend, infra)
+- **Multiple reviewers**: Get diverse perspectives, catch more issues
 
 ## User Experience
 
 ### Installation
 
 ```bash
-# Install
-pip install glee-cli
-# or
-uvx glee
+# 全局安装
+uv tool install glee
+# 或
+pipx install glee
+# 或
+brew install glee
 ```
 
 ### Basic Usage
@@ -51,33 +62,85 @@ uvx glee
 # Start Glee
 glee start
 
-# Connect agents with roles
-glee connect claude --role coder
-glee connect codex --role reviewer
+# Connect coders with domain expertise
+glee connect claude --role coder --domain backend,api,database
+glee connect gemini --role coder --domain frontend,react,css
+glee connect codex --role coder --domain infra,devops,ci-cd
+
+# Connect reviewers with focus areas
+glee connect codex --role reviewer --focus security,performance
+glee connect claude --role reviewer --focus architecture,maintainability
 
 # Or use a config file
 glee start --config glee.yaml
+
+# View connected agents
+glee agents
+# Output:
+#   Coders (dispatch: first)
+#     1. claude [backend, api, database]
+#     2. gemini [frontend, react, css]
+#     3. codex [infra, devops, ci-cd]
+#   Reviewers (dispatch: all)
+#     - codex [security, performance]
+#     - claude [architecture, maintainability]
 ```
 
 ### Project Configuration
 
 ```yaml
-# glee.yaml
+# .glee/config.yml
 project:
+  id: 550e8400-e29b-41d4-a716-446655440000  # UUID, auto-generated
   name: my-app
-  id: my-app-uuid  # Stable ID, survives renames
+  path: /Users/yumin/ventures/my-app        # 项目绝对路径
 
+# Coders - different agents for different domains
 agents:
   - name: claude
-    role: backend-coder
+    role: coder
+    domain:
+      - backend
+      - api
+      - database
+    priority: 1
+
   - name: gemini
-    role: frontend-coder
+    role: coder
+    domain:
+      - frontend
+      - react
+      - css
+    priority: 2
+
+  - name: codex
+    role: coder
+    domain:
+      - infra
+      - devops
+      - ci-cd
+    priority: 3
+
+  # Reviewers - diverse perspectives catch more issues
   - name: codex
     role: reviewer
+    focus:
+      - security
+      - performance
+
+  - name: claude
+    role: reviewer
+    focus:
+      - architecture
+      - maintainability
+
+# Dispatch strategy: how to select when multiple agents match
+dispatch:
+  coder: first        # first | random | round-robin (一个任务只能一个 coder)
+  reviewer: all       # all | first | random (多 reviewer 并行审查有价值)
 
 memory:
-  type: postgres
-  url: postgresql://localhost:5432/glee
+  embedding_model: BAAI/bge-small-en-v1.5  # fastembed model
 
 workflow:
   review:
@@ -85,28 +148,60 @@ workflow:
     require_approval: true
 ```
 
-### Workflow Example
+### Workflow Example: Multi-Reviewer
 
 ```bash
 # In Claude Code
 User: Build a rate limiter
 
 # Claude Code writes the code...
-# Then Glee automatically triggers review
+# Glee triggers parallel reviews from multiple reviewers
 
-Glee: Sending to Codex for review...
+Glee: Sending to reviewers...
+  → Codex (security, performance)
+  → Claude (architecture, maintainability)
+
 Codex: Found 2 issues:
-  1. Race condition in counter increment
-  2. Missing rate limit headers in response
+  1. Race condition in counter increment [security]
+  2. Missing cache invalidation [performance]
 
-Glee: Issues found. Claude, please fix.
+Claude: Found 1 issue:
+  1. Consider extracting RateLimiter interface [architecture]
+
+Glee: 3 issues found from 2 reviewers. Fixing...
 
 # Claude Code fixes the issues...
 
-Glee: Re-reviewing with Codex...
+Glee: Re-reviewing...
 Codex: LGTM ✓
+Claude: LGTM ✓
 
-Glee: Review passed after 2 iterations.
+Glee: All reviewers approved after 2 iterations.
+```
+
+### Workflow Example: Multi-Coder
+
+```bash
+User: Build a full-stack feature with user dashboard
+
+Glee: Dispatching to specialized coders...
+  → Claude (backend): Building API endpoints
+  → Gemini (frontend): Building React components
+  → Codex (infra): Setting up database migrations
+
+# Each coder works on their domain in parallel
+# Glee coordinates and merges the work
+
+Claude: Backend API complete (3 endpoints)
+Gemini: Frontend components complete (Dashboard, UserStats)
+Codex: Migrations complete (2 tables)
+
+Glee: All coders finished. Triggering cross-review...
+  → Backend reviewed by Gemini (API contract check)
+  → Frontend reviewed by Codex (security check)
+  → Infra reviewed by Claude (architecture check)
+
+Glee: All reviews passed. Feature complete.
 ```
 
 ---
@@ -162,16 +257,6 @@ Glee runs locally, supports MCP and A2A protocols as input, and uses subprocess 
             └─────────────────┴─────────────────┘
                               │
                      Full access to local files
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                          Docker                                  │
-│  ┌────────────────────┐       ┌────────────────────┐            │
-│  │  PostgreSQL        │       │  pgweb             │            │
-│  │  (Memory Storage)  │       │  (Admin UI)        │            │
-│  │  Port: 5432        │       │  Port: 8081        │            │
-│  └────────────────────┘       └────────────────────┘            │
-└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Why This Architecture?
@@ -254,46 +339,204 @@ The memory layer provides persistent, searchable storage:
 
 **Key Feature**: Project ID is stable. Renaming folders doesn't lose history.
 
-```yaml
-# glee.yaml
-project:
-  id: 550e8400-e29b-41d4-a716-446655440000  # UUID, never changes
-  name: my-project  # Display name, can change
-  aliases:
-    - /Users/yumin/old-path/my-project
-    - /Users/yumin/new-path/my-project
+### Config Directory Structure
+
 ```
+# 全局配置 (XDG standard)
+~/.config/glee/
+├── config.yml              # 全局默认配置
+├── projects.yml            # 项目注册表
+└── credentials.yml         # API keys
+
+# 项目配置
+<project>/
+└── .glee/                  # gitignore 整个目录
+    ├── config.yml          # project.id, agents, dispatch 等
+    ├── memory.lance/       # LanceDB - vector search
+    ├── memory.duckdb       # DuckDB - SQL queries
+    └── sessions/           # session 缓存
+```
+
+### Project Registry
+
+```yaml
+# ~/.config/glee/projects.yml (只存 ID 和路径，不频繁写入)
+projects:
+  - id: 550e8400-e29b-41d4-a716-446655440000
+    name: my-app
+    path: /Users/yumin/ventures/my-app
+
+  - id: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+    name: another-app
+    path: /Users/yumin/work/another-app
+```
+
+**数据分层：**
+| 数据 | 存储位置 | 原因 |
+|------|---------|------|
+| project.id, path | `projects.yml` | 不频繁变化 |
+| last_seen, 统计 | DuckDB | 频繁更新 |
+| memory, 决策 | LanceDB + DuckDB | 需要搜索 |
+
+```yaml
+# <project>/.glee/config.yml
+project:
+  id: 550e8400-e29b-41d4-a716-446655440000
+  name: my-app
+  path: /Users/yumin/ventures/my-app
+
+agents:
+  # ... project-specific agent config
+```
+
+### Path Mismatch Detection (不自动更新)
+
+当检测到路径变化时，**不自动更新**，提示用户手动确认：
+
+```bash
+# 检测到路径变化
+$ glee status
+Warning: Project path mismatch!
+  Config path: /Users/yumin/old-path/my-app
+  Current path: /Users/yumin/new-path/my-app
+
+Run 'glee update' to update the path.
+```
+
+```bash
+# 用户确认更新路径
+$ glee update
+Updated project path:
+  Old: /Users/yumin/old-path/my-app
+  New: /Users/yumin/new-path/my-app
+  ID: 550e8400-e29b-41d4-a716-446655440000 (unchanged)
+```
+
+### Auto Memory Injection (Hook)
+
+**The problem**: Every agent session starts fresh. No memory of past decisions.
+
+**The solution**: Use agent hooks to automatically inject context at session start.
+
+```json
+// .claude/settings.json (per-project)
+{
+  "hooks": {
+    "session_start": {
+      "command": "glee context",
+      "timeout": 5000
+    }
+  }
+}
+```
+
+```bash
+# What glee context returns:
+$ glee context
+
+## Project: my-app (since 2024-01)
+
+### Architecture Decisions
+- REST API with FastAPI, not GraphQL (decided 2024-01-20)
+- Frontend: React + TailwindCSS
+- DuckDB for local persistence (decided 2024-01-15)
+
+### Code Conventions
+- Use Pydantic for all data models
+- Async handlers for all API endpoints
+- pytest for testing, minimum 80% coverage
+
+### Recent Review Issues
+- Race condition in rate limiter (fixed 2024-02-01)
+- Missing input validation on /api/users (fixed 2024-02-05)
+
+### Active Coders
+- claude: backend, api
+- gemini: frontend, react
+```
+
+**Result**: Every new session automatically knows the project context.
 
 ---
 
 ## Core Features
 
-### 1. Multi-Agent Review Loop
+### 1. Multi-Coder Collaboration
 
-The primary use case: get a second opinion from another agent.
+**The killer feature**: Dispatch different parts of a task to specialized agents.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  1. Agent A writes code                                   │
+│  User Request: "Build a full-stack dashboard"            │
 └─────────────────────────────┬────────────────────────────┘
                               ▼
 ┌──────────────────────────────────────────────────────────┐
-│  2. Glee sends to Agent B for review                     │
+│  Glee analyzes and dispatches to specialized coders      │
+└─────────────────────────────┬────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+┌───────────────┐    ┌───────────────┐    ┌───────────────┐
+│ Claude        │    │ Gemini        │    │ Codex         │
+│ (backend)     │    │ (frontend)    │    │ (infra)       │
+│ → API routes  │    │ → Components  │    │ → Migrations  │
+│ → Business    │    │ → Styling     │    │ → Docker      │
+│   logic       │    │ → State mgmt  │    │ → CI/CD       │
+└───────┬───────┘    └───────┬───────┘    └───────┬───────┘
+        │                    │                    │
+        └────────────────────┼────────────────────┘
+                             ▼
+┌──────────────────────────────────────────────────────────┐
+│  Glee merges, coordinates, triggers cross-review         │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Why this matters**:
+- Different agents excel at different things
+- Parallel execution = faster results
+- Specialized focus = higher quality
+- Cross-review catches integration issues
+
+### 2. Multi-Reviewer Review Loop
+
+Get multiple perspectives on every piece of code.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Code written by coder(s)                                │
 └─────────────────────────────┬────────────────────────────┘
                               ▼
+┌──────────────────────────────────────────────────────────┐
+│  Glee sends to multiple reviewers in parallel            │
+└─────────────────────────────┬────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+┌───────────────┐    ┌───────────────┐    ┌───────────────┐
+│ Codex         │    │ Claude        │    │ Gemini        │
+│ (security)    │    │ (architecture)│    │ (ux/a11y)     │
+└───────┬───────┘    └───────┬───────┘    └───────┬───────┘
+        │                    │                    │
+        └────────────────────┼────────────────────┘
+                             ▼
                     ┌─────────────────┐
-                    │  Review Result  │
+                    │ Aggregate Result│
                     └────────┬────────┘
                              │
         ┌────────────────────┼────────────────────┐
         ▼                    ▼                    ▼
 ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-│   approved    │   │  has_issues   │   │ needs_human   │
+│ all_approved  │   │  has_issues   │   │ needs_human   │
 │   ✓ Done      │   │  → Fix & Loop │   │  → Ask User   │
 └───────────────┘   └───────────────┘   └───────────────┘
 ```
 
-### 2. Intelligent Review Protocol
+**Why multiple reviewers**:
+- Different agents catch different issues
+- Security expert + Architecture expert + UX expert = comprehensive review
+- Reduces blind spots of any single agent
+
+### 3. Intelligent Review Protocol
 
 Not just "review this code" — structured, professional review:
 
@@ -309,30 +552,50 @@ Not just "review this code" — structured, professional review:
 }
 ```
 
-### 3. Role-Based Agent Assignment
+### 4. Role-Based Agent Assignment
 
 Different agents for different tasks:
 
 ```yaml
 agents:
+  # Coders use 'domain' - their area of expertise
   - name: claude
-    role: backend-coder
-    focus: ["api", "database", "business-logic"]
+    role: coder
+    domain:
+      - backend
+      - api
+      - database
 
   - name: gemini
-    role: frontend-coder
-    focus: ["react", "css", "accessibility"]
+    role: coder
+    domain:
+      - frontend
+      - react
+      - accessibility
 
+  # Reviewers use 'focus' - what they look for
   - name: codex
     role: reviewer
-    focus: ["security", "performance", "best-practices"]
+    focus:
+      - security
+      - performance
 
   - name: claude
-    role: security-auditor
-    focus: ["owasp", "vulnerabilities", "compliance"]
+    role: reviewer
+    focus:
+      - architecture
+      - maintainability
+
+  # Auditors are specialized reviewers
+  - name: claude
+    role: auditor
+    focus:
+      - owasp
+      - vulnerabilities
+      - compliance
 ```
 
-### 4. Workflow Engine
+### 5. Workflow Engine
 
 Define custom multi-agent workflows:
 
@@ -368,22 +631,44 @@ glee stop                     # Stop Glee daemon
 glee status                   # Show running agents & status
 
 # Agent management
-glee connect <agent> --role <role>   # Connect an agent
-glee disconnect <agent>              # Disconnect an agent
-glee agents                          # List connected agents
+glee connect <agent> --role coder --domain <areas>
+                              # Connect a coder with domain expertise
+glee connect <agent> --role reviewer --focus <areas>
+                              # Connect a reviewer with focus areas
+glee disconnect <agent>       # Disconnect an agent
+glee agents                   # List connected agents by role
 
-# Workflow
-glee review [files]           # Trigger review workflow
+# Multi-coder workflow
+glee code <task>              # Dispatch task to coders
+glee code --backend <task>    # Send to backend coders only
+glee code --frontend <task>   # Send to frontend coders only
+glee code --all <task>        # Send to all coders in parallel
+
+# Multi-reviewer workflow
+glee review [files]           # Trigger multi-reviewer workflow
+glee review --security        # Security-focused review only
+glee review --all             # All reviewers in parallel
+
+# Custom workflow
 glee workflow run <name>      # Run a custom workflow
+glee workflow list            # List available workflows
 
 # Memory
 glee memory show              # Show project memory
 glee memory add <key> <value> # Add to memory
 glee memory search <query>    # Search memory
+glee context                  # Get project context (for hook injection)
 
 # Config
-glee init                     # Initialize glee.yaml
+glee init                     # Initialize .glee/config.yml with new project ID
+glee init --new-id            # Generate new ID (if duplicate detected)
 glee config                   # Show current config
+
+# Project management
+glee project list             # List all registered projects
+glee project info             # Show current project info
+glee project prune            # Remove stale entries (path not found)
+glee update                   # Update project path (after moving project)
 ```
 
 ---
@@ -396,50 +681,41 @@ glee config                   # Show current config
 | Package Manager | uv | Fast, modern |
 | Orchestration | LangGraph | State management, workflows |
 | Types | Pydantic | Validation, serialization |
-| Database | PostgreSQL + pgvector | Memory storage, vector search |
-| CLI | Click/Typer | User-friendly CLI |
+| Embedding | fastembed | 本地生成，无需 API，轻量快速 |
+| Vector DB | LanceDB | 嵌入式，单文件，向量搜索 |
+| SQL DB | DuckDB | 嵌入式，单文件，SQL 查询 |
+| CLI | Typer | User-friendly CLI |
 
 ---
 
-## Docker Compose (Database Only)
+## Storage (Embedded, No Server)
 
-```yaml
-# compose.yml
-services:
-  db:
-    image: pgvector/pgvector:pg17
-    container_name: glee-db
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
-      interval: 10s
-      timeout: 5s
-      retries: 5
+使用嵌入式数据库，无需 Docker 或外部服务器：
 
-  pgweb:
-    image: sosedoff/pgweb
-    container_name: glee-pgweb
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
-    ports:
-      - "8081:8081"
-    depends_on:
-      db:
-        condition: service_healthy
-
-networks:
-  glee-network:
-    driver: bridge
 ```
+.glee/
+├── config.yml
+├── memory.lance/       # LanceDB - vector storage + search
+├── memory.duckdb       # DuckDB - SQL queries
+└── sessions/
+```
+
+**数据流：**
+```
+用户输入 / Agent 输出
+    ↓
+fastembed (本地生成 embedding)
+    ↓
+LanceDB (存储 vector，语义搜索)
+    ↓
+DuckDB (结构化查询，统计)
+```
+
+**优势：**
+- 零配置，无需 Docker
+- 全本地，无需 API
+- 单文件，易备份
+- 跨平台 (macOS, Linux, Windows)
 
 ---
 
@@ -466,8 +742,9 @@ glee/
 │   │   └── gemini.py         # Gemini adapter
 │   ├── memory/
 │   │   ├── store.py          # Memory abstraction
-│   │   ├── postgres.py       # PostgreSQL backend
-│   │   └── vector.py         # Vector search
+│   │   ├── lance.py          # LanceDB backend (vector)
+│   │   ├── duck.py           # DuckDB backend (SQL)
+│   │   └── embed.py          # fastembed wrapper
 │   ├── review/
 │   │   ├── protocol.py       # Review protocol
 │   │   ├── checklists.py     # Review checklists
@@ -477,7 +754,6 @@ glee/
 ├── docs/
 │   ├── VISION.md
 │   └── PRD.md
-├── compose.yml               # Database only
 ├── pyproject.toml
 └── glee.example.yaml
 ```
@@ -486,24 +762,28 @@ glee/
 
 ## V1 Scope
 
-**Goal**: A working multi-agent review loop that's easy to install and use.
+**Goal**: A working multi-agent platform that supports multiple coders and reviewers.
 
 ### Must Have
 - [ ] `glee start` / `glee stop` daemon
-- [ ] `glee connect <agent>` for Claude, Codex
-- [ ] `glee review` triggers review workflow
-- [ ] Basic review loop (code → review → fix → repeat)
-- [ ] PostgreSQL memory storage
-- [ ] File-based fallback (no database required)
+- [ ] `glee connect <agent> --role <role>` for Claude, Codex, Gemini
+- [ ] **Multiple coders** with domain focus (backend, frontend, infra)
+- [ ] **Multiple reviewers** with specialty (security, architecture, ux)
+- [ ] Parallel agent execution
+- [ ] `glee review` triggers multi-reviewer workflow
+- [ ] Cross-review between coders
+- [ ] `.glee/config.yml` project config
+- [ ] LanceDB + DuckDB + fastembed (嵌入式，无需服务器)
+- [ ] **Auto memory injection via hook** - `glee context` command for session_start hook
 
 ### Nice to Have
-- [ ] `glee.yaml` project config
-- [ ] Multiple reviewer agents
+- [ ] Agent auto-selection based on task analysis
 - [ ] Custom review checklists
+- [ ] Conflict resolution for overlapping work
 
 ### Out of Scope (V2+)
-- Vector search / RAG
-- Team features
+- Advanced RAG (跨项目知识库)
+- Team features (多人协作)
 - GitHub integration
 - Knowledge marketplace
 

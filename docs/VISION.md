@@ -4,7 +4,7 @@
 
 Coding agents are everywhere — Claude Code, Codex, Gemini CLI, Cursor, Windsurf, and more are shipping weekly. They're powerful. They're fast. But they all share the same fundamental problems:
 
-1. **They work alone.** Each agent operates in isolation, with its own biases and blind spots. No peer review. No second opinion.
+1. **They work alone.** Each agent operates in isolation, with its own biases and blind spots. No peer review. No second opinion. No collaboration between agents with different strengths.
 
 2. **They have no memory.** Every session starts fresh. They don't remember your project's conventions, past decisions, or lessons learned. You explain the same context over and over. Worse: some agents (Claude Code) use directory paths as project identifiers — rename a folder and all your history vanishes. Months of context, gone.
 
@@ -29,25 +29,29 @@ Without Glee:
 └─────────────┘
 
 With Glee:
-┌────────────────────────────────────────────────────────┐
-│                         Glee                            │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
-│  │MCP Server│  │A2A Server│  │ REST API │  │ Web UI │  │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────────┘  │
-│       └─────────────┴─────────────┘                     │
-│                     │                                   │
-│       ┌─────────────┴─────────────┐                    │
-│       │  Orchestrator + Memory    │                    │
-│       └─────────────┬─────────────┘                    │
-│                     │ subprocess                        │
-└─────────────────────┼──────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                           Glee                               │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐   │
+│  │MCP Server│  │A2A Server│  │ REST API │  │  Web UI    │   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────────────┘   │
+│       └─────────────┴─────────────┘                          │
+│                     │                                        │
+│       ┌─────────────┴─────────────┐                         │
+│       │  Orchestrator + Memory    │                         │
+│       └─────────────┬─────────────┘                         │
+│                     │ subprocess                             │
+└─────────────────────┼───────────────────────────────────────┘
                       │
-        ┌─────────────┼─────────────┐
-        ▼             ▼             ▼
-  ┌──────────┐  ┌──────────┐  ┌──────────┐
-  │  Claude  │  │  Codex   │  │  Gemini  │
-  │  (CLI)   │  │  (CLI)   │  │  (CLI)   │
-  └──────────┘  └──────────┘  └──────────┘
+    ┌─────────────────┼─────────────────┐
+    │                 │                 │
+    ▼                 ▼                 ▼
+┌─────────┐     ┌───────────┐     ┌──────────┐
+│ Coders  │     │ Reviewers │     │ Auditors │
+├─────────┤     ├───────────┤     ├──────────┤
+│ Claude  │     │  Codex    │     │ Claude   │
+│ Gemini  │     │  Claude   │     │ (security)│
+│ Codex   │     │  Gemini   │     └──────────┘
+└─────────┘     └───────────┘
 ```
 
 **Protocol In, Subprocess Out**:
@@ -55,9 +59,46 @@ With Glee:
 - Glee invokes CLI agents via subprocess
 - Every agent can talk to every other agent — through Glee
 
-## Three Pillars
+**Multiple Coders, Multiple Reviewers**:
+- Coders have **domains** (backend, frontend, infra) — their area of expertise
+- Reviewers have **focus** (security, architecture, ux) — what they look for
+- Parallel execution for speed, cross-review for quality
 
-### 1. Intelligent Review Protocol
+## Four Pillars
+
+### 1. Multi-Agent Collaboration
+
+**The killer feature.** Why use one agent when you can use them all?
+
+**Multiple Coders** (by domain):
+- Claude: `domain: [backend, api, database]`
+- Gemini: `domain: [frontend, react, css]`
+- Codex: `domain: [infra, devops, ci-cd]`
+- Dispatch: `first | random | round-robin` (一个任务只能一个 coder)
+
+**Multiple Reviewers** (by focus):
+- Codex: `focus: [security, performance]`
+- Claude: `focus: [architecture, maintainability]`
+- Gemini: `focus: [accessibility, ux]`
+- Dispatch: `all | first | random` (多 reviewer 并行审查有价值)
+
+```
+User: "Build a full-stack dashboard"
+
+Glee dispatches by domain:
+  → Claude [backend]: API endpoints, business logic
+  → Gemini [frontend]: React components, styling
+  → Codex [infra]: Database migrations, CI/CD
+
+Then reviews by focus:
+  → Codex [security]: checks all code for vulnerabilities
+  → Claude [architecture]: checks structure and patterns
+  → Gemini [accessibility]: checks UI components
+```
+
+**Different agents excel at different things. Glee lets you use them all.**
+
+### 2. Intelligent Review Protocol
 
 Agents make mistakes. Code gets shipped with bugs, security holes, and anti-patterns.
 
@@ -70,7 +111,7 @@ Glee provides structured, professional code review:
 
 **Not "does this code look okay?" — but systematic quality assurance.**
 
-### 2. Agent Abstraction Layer
+### 3. Agent Abstraction Layer
 
 Today you use Claude Code. Tomorrow maybe Codex is better for your use case. Next month, a new player emerges.
 
@@ -83,7 +124,7 @@ Glee abstracts the underlying agent:
 
 **Use any agent. Use all agents. Glee orchestrates.**
 
-### 3. Persistent Memory
+### 4. Persistent Memory
 
 This is the biggest gap in today's coding agents.
 
@@ -94,17 +135,67 @@ Glee remembers everything:
 - **Team memory**: Who owns what, style preferences, tribal knowledge
 - **Learning**: Gets smarter about your codebase over time
 
-Every agent you use can tap into this shared memory.
+**Storage (嵌入式，无需服务器)**:
+
+```
+# 全局配置
+~/.config/glee/
+├── config.yml              # 全局默认配置
+├── projects.yml            # 项目注册表 (ID → path)
+└── credentials.yml         # API keys
+
+# 项目配置 (gitignore 整个 .glee/)
+<project>/.glee/
+├── config.yml              # project.id, agents, dispatch
+├── memory.lance/           # LanceDB - vector search
+├── memory.duckdb           # DuckDB - SQL queries
+└── sessions/               # session 缓存
+```
+
+**Tech stack**:
+```
+fastembed (本地 embedding，无需 API)
+    ↓
+LanceDB (vector 存储 + 语义搜索)
+    ↓
+DuckDB (SQL 查询)
+```
+
+**Project ID is stable**: 项目改名/移动不会丢失历史。Glee 检测到路径变化时提示用户执行 `glee update`。
+
+**Auto-injection via hooks**: When you start a new session, Glee automatically injects relevant context.
+
+```
+Claude Code starts
+    ↓ hook: session_start
+glee context
+    ↓ returns project context
+Claude Code now knows:
+  - Architecture decisions
+  - Code conventions
+  - Recent review issues
+  - Active coders and their domains
+  - Active reviewers and their focus
+```
+
+Every agent you use can tap into this shared memory — automatically.
 
 **The more you use Glee, the better every agent becomes at understanding your project.**
 
 ## The Flywheel
 
 ```
-More Usage → More Memory → Better Reviews → Better Code → More Usage
+More Agents → Better Coverage → Fewer Bugs → More Trust → More Usage
+     ↓                                                        ↓
+More Memory → Smarter Context → Better Reviews → Better Code ←┘
 ```
 
-This is the moat. Every review, every decision, every fix makes Glee smarter about your project. This knowledge compounds. It can't be replicated by switching to a new tool.
+This is the moat:
+- **Agent synergy**: Each agent's strength compensates for another's weakness
+- **Memory compounds**: Every review, every decision makes Glee smarter
+- **Network effects**: More agents supported = more combinations = more value
+
+This knowledge and coordination can't be replicated by switching to a new tool.
 
 ## Design Principles
 
@@ -130,31 +221,34 @@ The orchestration layer is open source. Build on it, extend it, trust it.
 
 ## V1: The Starting Point
 
-The first version focuses on the core loop:
+The first version focuses on multi-agent collaboration:
 
-**"Get a second opinion on your code from another AI agent."**
+**"Multiple coders. Multiple reviewers. One orchestrator."**
 
-- Works with Claude Code out of the box
-- Uses Codex (or configurable) for review
-- Simple approve/iterate loop
-- File-based storage (no database required)
-- Installs in one command
+- **Multiple coders**: Assign Claude to backend, Gemini to frontend, Codex to infra
+- **Multiple reviewers**: Security review + Architecture review + UX review in parallel
+- **Cross-review**: Backend code reviewed by frontend agent, and vice versa
+- Works with Claude Code, Codex, Gemini CLI out of the box
+- **嵌入式存储**: LanceDB + DuckDB + fastembed (无需服务器)
+- Installs in one command, zero config
 
-This is intentionally minimal. But it establishes the pattern: your agent + Glee = better code.
+This establishes the core pattern: your agents + Glee = better code, faster.
 
 ## The Future
 
-### V2: Memory Layer
+### V2: Advanced Memory
 
-- Vector database for project knowledge
-- Automatic context injection
-- Learn from every review
+- Vector database for semantic search
+- Automatic context injection based on task
+- Learn from every review and decision
+- Cross-project knowledge sharing
 
-### V3: Multi-Agent Workflows
+### V3: Intelligent Dispatch
 
-- Define custom agent pipelines
-- Specialized agents for security, performance, testing
-- Human-in-the-loop checkpoints
+- Auto-detect task type and assign to best agent
+- Load balancing across agents
+- Conflict resolution for overlapping work
+- Smart task decomposition
 
 ### V4: Team & Enterprise
 
@@ -168,6 +262,7 @@ This is intentionally minimal. But it establishes the pattern: your agent + Glee
 - Share review checklists
 - Import best practices
 - Community-contributed agent configs
+- Agent performance benchmarks
 
 ## Why "Glee"?
 

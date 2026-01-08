@@ -42,6 +42,7 @@ codex exec --json --full-auto
 ```
 
 **Key design decisions:**
+
 - Agent only calls Codex for review - code modifications stay in Claude Code session
 - MCP Server exposes 3 tools: `start_review`, `continue_review`, `get_review_status`
 - Supports stdio (local) and SSE (Docker) transports via `GLEE_TRANSPORT` env var
