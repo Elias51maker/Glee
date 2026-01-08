@@ -115,50 +115,81 @@ Glee: Review passed after 2 iterations.
 
 ### Design Principle
 
-**Glee runs locally. Agents run locally. Database runs in Docker.**
+**Glee = Universal Agent Gateway**
+
+Glee runs locally, supports MCP and A2A protocols as input, and uses subprocess to invoke CLI agents as output.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     Local Machine                        │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │                    Glee                           │   │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  │   │
-│  │  │ Orchestrator│  │  Memory   │  │  Workflow  │  │   │
-│  │  │            │  │  Layer    │  │  Engine    │  │   │
-│  │  └────────────┘  └────────────┘  └────────────┘  │   │
-│  └───────────────────────┬──────────────────────────┘   │
-│                          │                               │
-│         ┌────────────────┼────────────────┐             │
-│         ▼                ▼                ▼             │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐        │
-│  │ Claude Code│  │   Codex    │  │  Gemini    │        │
-│  │ (subprocess)│  │(subprocess)│  │(subprocess)│        │
-│  │ Full access │  │ Full access│  │ Full access│        │
-│  │ to files   │  │ to files   │  │ to files   │        │
-│  └────────────┘  └────────────┘  └────────────┘        │
-│                                                          │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            │ TCP/IP
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│                       Docker                             │
-├─────────────────────────────────────────────────────────┤
-│  ┌────────────────────┐  ┌────────────────────┐        │
-│  │  PostgreSQL        │  │  pgweb             │        │
-│  │  (Memory Storage)  │  │  (Admin UI)        │        │
-│  │  Port: 5432        │  │  Port: 8081        │        │
-│  └────────────────────┘  └────────────────────┘        │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        External Agents                           │
+│  ┌────────────────┐              ┌────────────────┐             │
+│  │ MCP Client     │              │ A2A Client     │             │
+│  │ (e.g. Claude)  │              │ (e.g. Gemini)  │             │
+│  └───────┬────────┘              └───────┬────────┘             │
+│          │ MCP Protocol                  │ A2A Protocol         │
+└──────────┼───────────────────────────────┼──────────────────────┘
+           ▼                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                            Glee                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    Protocol Layer                        │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │    │
+│  │  │ MCP Server  │  │ A2A Server  │  │  REST API       │  │    │
+│  │  │ (入口)       │  │ (入口)       │  │  (入口)         │  │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────────┘  │    │
+│  └──────────────────────────┬──────────────────────────────┘    │
+│                             │                                    │
+│  ┌──────────────────────────┴──────────────────────────────┐    │
+│  │                    Core Layer                            │    │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────────────┐ │    │
+│  │  │Orchestrator│  │  Memory    │  │  Workflow Engine   │ │    │
+│  │  └────────────┘  └────────────┘  └────────────────────┘ │    │
+│  └──────────────────────────┬──────────────────────────────┘    │
+│                             │                                    │
+│  ┌──────────────────────────┴──────────────────────────────┐    │
+│  │                 Subprocess Manager (出口)                │    │
+│  │  Invokes CLI agents with full local file access          │    │
+│  └──────────────────────────┬──────────────────────────────┘    │
+└─────────────────────────────┼───────────────────────────────────┘
+                              │ subprocess
+            ┌─────────────────┼─────────────────┐
+            ▼                 ▼                 ▼
+     ┌────────────┐    ┌────────────┐    ┌────────────┐
+     │ Claude Code│    │   Codex    │    │  Gemini    │
+     │   (CLI)    │    │   (CLI)    │    │   (CLI)    │
+     └────────────┘    └────────────┘    └────────────┘
+            │                 │                 │
+            └─────────────────┴─────────────────┘
+                              │
+                     Full access to local files
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                          Docker                                  │
+│  ┌────────────────────┐       ┌────────────────────┐            │
+│  │  PostgreSQL        │       │  pgweb             │            │
+│  │  (Memory Storage)  │       │  (Admin UI)        │            │
+│  │  Port: 5432        │       │  Port: 8081        │            │
+│  └────────────────────┘       └────────────────────┘            │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Why this architecture?**
+### Why This Architecture?
 
-- Agents run locally → Full access to files, full agentic capabilities
-- Glee runs locally → Can invoke agents as subprocesses
-- Database in Docker → Easy setup, persistent storage, portable
+**Protocol Gateway**:
+- MCP clients (Claude Code, etc.) → connect via MCP protocol
+- A2A clients (future agents) → connect via A2A protocol
+- Any HTTP client → connect via REST API
+
+**Subprocess Output**:
+- CLI agents don't support server protocols
+- Glee invokes them via subprocess (`codex exec`, `claude`, `gemini`)
+- Agents run locally with full file access (no Docker isolation)
+
+**Value Proposition**:
+- Agent A (supports MCP) → via Glee → can use Agent B (CLI only)
+- Agent X (supports A2A) → via Glee → can use Agent Y (CLI only)
+- **Glee bridges the protocol gap**
 
 ### Agent Registry
 
@@ -489,18 +520,22 @@ glee/
 
 ## Open Questions
 
-1. **How does Glee communicate with agents?**
-   - Option A: Subprocess with stdin/stdout
-   - Option B: Agent-specific CLI commands (`codex exec`, `claude --print`)
-   - Option C: File-based (write request, read response)
+1. ~~**How does Glee communicate with agents?**~~ ✅ Resolved
+   - **Input**: Glee exposes MCP Server + A2A Server + REST API
+   - **Output**: Glee invokes CLI agents via subprocess
 
-2. **How does Glee intercept agent output?**
-   - For review: Agent writes code → Glee detects changes → Triggers review
-   - Need to integrate with each agent's workflow
+2. ~~**How does Glee intercept agent output?**~~ ✅ Resolved
+   - Subprocess captures stdout/stderr directly
+   - Use `--json` flags where available (e.g., `codex exec --json`)
 
-3. **Should Glee have a TUI/Dashboard?**
+3. ~~**Should Glee have a TUI/Dashboard?**~~ ✅ Resolved
+   - **Web UI** (not TUI) — more accessible, broader audience
    - Show agent status, review progress, memory stats
-   - Could use Rich or Textual
+   - Served via FastAPI at `/dashboard`
+
+4. ~~**A2A implementation priority?**~~ ✅ Resolved
+   - V1 supports both MCP and A2A
+   - Both protocols are straightforward to implement
 
 ---
 

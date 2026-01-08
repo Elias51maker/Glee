@@ -18,7 +18,7 @@ The solution is to build **an orchestration layer** that coordinates them all.
 
 ## What is Glee?
 
-Glee is the **Orchestration Hub for AI Coding Agents**.
+Glee is the **Universal Agent Gateway**.
 
 Not a replacement. A multiplier.
 
@@ -29,13 +29,31 @@ Without Glee:
 └─────────────┘
 
 With Glee:
-┌─────────────┐     ┌─────────────┐
-│   Agent A   │ ←→  │    Glee     │ ←→ │   Agent B   │
-└─────────────┘     │  - Memory   │     └─────────────┘
-                    │  - Review   │
-                    │  - Knowledge│
-                    └─────────────┘
+┌────────────────────────────────────────────────────────┐
+│                         Glee                            │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
+│  │MCP Server│  │A2A Server│  │ REST API │  │ Web UI │  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────────┘  │
+│       └─────────────┴─────────────┘                     │
+│                     │                                   │
+│       ┌─────────────┴─────────────┐                    │
+│       │  Orchestrator + Memory    │                    │
+│       └─────────────┬─────────────┘                    │
+│                     │ subprocess                        │
+└─────────────────────┼──────────────────────────────────┘
+                      │
+        ┌─────────────┼─────────────┐
+        ▼             ▼             ▼
+  ┌──────────┐  ┌──────────┐  ┌──────────┐
+  │  Claude  │  │  Codex   │  │  Gemini  │
+  │  (CLI)   │  │  (CLI)   │  │  (CLI)   │
+  └──────────┘  └──────────┘  └──────────┘
 ```
+
+**Protocol In, Subprocess Out**:
+- Agents connect via MCP or A2A protocols
+- Glee invokes CLI agents via subprocess
+- Every agent can talk to every other agent — through Glee
 
 ## Three Pillars
 
