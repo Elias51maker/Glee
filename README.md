@@ -8,20 +8,22 @@ An orchestration layer for AI coding agents with shared memory, context injectio
 
 ```bash
 # Install
-uv sync
+pipx install glee
+# or: uvx glee
+# or: uv tool install glee
 
 # Initialize project
-uv run glee init
+glee init
 
 # Connect agents
-uv run glee connect claude --role coder --domain backend,api
-uv run glee connect codex --role reviewer --focus security,performance
+glee connect claude --role coder --domain backend,api
+glee connect codex --role reviewer --focus security,performance
 
 # View status
-uv run glee status
+glee status
 
 # Run review
-uv run glee review src/main.py
+glee review src/main.py
 ```
 
 ## Features
