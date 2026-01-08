@@ -34,7 +34,8 @@ def get_sqlite_connection(project_path: Path | None = None) -> sqlite3.Connectio
     """
     db_path = get_sqlite_path(project_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(str(db_path))
+    # check_same_thread=False allows multi-threaded access (e.g., MCP parallel reviews)
+    return sqlite3.connect(str(db_path), check_same_thread=False)
 
 
 def init_sqlite(
