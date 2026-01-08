@@ -74,13 +74,13 @@ With Glee:
 - Claude: `domain: [backend, api, database]`
 - Gemini: `domain: [frontend, react, css]`
 - Codex: `domain: [infra, devops, ci-cd]`
-- Dispatch: `first | random | round-robin` (一个任务只能一个 coder)
+- Dispatch: `first | random | round-robin` (one task = one coder)
 
 **Multiple Reviewers** (by focus):
 - Codex: `focus: [security, performance]`
 - Claude: `focus: [architecture, maintainability]`
 - Gemini: `focus: [accessibility, ux]`
-- Dispatch: `all | first | random` (多 reviewer 并行审查有价值)
+- Dispatch: `all | first | random` (multiple reviewers add value)
 
 ```
 User: "Build a full-stack dashboard"
@@ -135,33 +135,33 @@ Glee remembers everything:
 - **Team memory**: Who owns what, style preferences, tribal knowledge
 - **Learning**: Gets smarter about your codebase over time
 
-**Storage (嵌入式，无需服务器)**:
+**Storage (Embedded, No Server)**:
 
 ```
-# 全局配置
+# Global config
 ~/.config/glee/
-├── config.yml              # 全局默认配置
-├── projects.yml            # 项目注册表 (ID → path)
+├── config.yml              # Global defaults
+├── projects.yml            # Project registry (ID → path)
 └── credentials.yml         # API keys
 
-# 项目配置 (gitignore 整个 .glee/)
+# Project config (gitignore .glee/)
 <project>/.glee/
 ├── config.yml              # project.id, agents, dispatch
 ├── memory.lance/           # LanceDB - vector search
 ├── memory.duckdb           # DuckDB - SQL queries
-└── sessions/               # session 缓存
+└── sessions/               # Session cache
 ```
 
 **Tech stack**:
 ```
-fastembed (本地 embedding，无需 API)
+fastembed (local embedding, no API)
     ↓
-LanceDB (vector 存储 + 语义搜索)
+LanceDB (vector storage + semantic search)
     ↓
-DuckDB (SQL 查询)
+DuckDB (SQL queries)
 ```
 
-**Project ID is stable**: 项目改名/移动不会丢失历史。Glee 检测到路径变化时提示用户执行 `glee update`。
+**Project ID is stable**: Renaming/moving projects doesn't lose history. Glee prompts user to run `glee update` when path mismatch is detected.
 
 **Auto-injection via hooks**: When you start a new session, Glee automatically injects relevant context.
 
@@ -229,7 +229,7 @@ The first version focuses on multi-agent collaboration:
 - **Multiple reviewers**: Security review + Architecture review + UX review in parallel
 - **Cross-review**: Backend code reviewed by frontend agent, and vice versa
 - Works with Claude Code, Codex, Gemini CLI out of the box
-- **嵌入式存储**: LanceDB + DuckDB + fastembed (无需服务器)
+- **Embedded storage**: LanceDB + DuckDB + fastembed (no server)
 - Installs in one command, zero config
 
 This establishes the core pattern: your agents + Glee = better code, faster.

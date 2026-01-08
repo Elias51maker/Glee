@@ -48,11 +48,11 @@ Glee is the **orchestration hub** for AI coding agents.
 ### Installation
 
 ```bash
-# 全局安装
+# Global install
 uv tool install glee
-# 或
+# or
 pipx install glee
-# 或
+# or
 brew install glee
 ```
 
@@ -93,7 +93,7 @@ glee agents
 project:
   id: 550e8400-e29b-41d4-a716-446655440000  # UUID, auto-generated
   name: my-app
-  path: /Users/yumin/ventures/my-app        # 项目绝对路径
+  path: /Users/yumin/ventures/my-app        # Absolute project path
 
 # Coders - different agents for different domains
 agents:
@@ -136,8 +136,8 @@ agents:
 
 # Dispatch strategy: how to select when multiple agents match
 dispatch:
-  coder: first        # first | random | round-robin (一个任务只能一个 coder)
-  reviewer: all       # all | first | random (多 reviewer 并行审查有价值)
+  coder: first        # first | random | round-robin (one task = one coder)
+  reviewer: all       # all | first | random (multiple reviewers add value)
 
 memory:
   embedding_model: BAAI/bge-small-en-v1.5  # fastembed model
@@ -230,7 +230,7 @@ Glee runs locally, supports MCP and A2A protocols as input, and uses subprocess 
 │  │                    Protocol Layer                        │    │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │    │
 │  │  │ MCP Server  │  │ A2A Server  │  │  REST API       │  │    │
-│  │  │ (入口)       │  │ (入口)       │  │  (入口)         │  │    │
+│  │  │ (input)     │  │ (input)     │  │  (input)        │  │    │
 │  │  └─────────────┘  └─────────────┘  └─────────────────┘  │    │
 │  └──────────────────────────┬──────────────────────────────┘    │
 │                             │                                    │
@@ -242,7 +242,7 @@ Glee runs locally, supports MCP and A2A protocols as input, and uses subprocess 
 │  └──────────────────────────┬──────────────────────────────┘    │
 │                             │                                    │
 │  ┌──────────────────────────┴──────────────────────────────┐    │
-│  │                 Subprocess Manager (出口)                │    │
+│  │                 Subprocess Manager (output)              │    │
 │  │  Invokes CLI agents with full local file access          │    │
 │  └──────────────────────────┬──────────────────────────────┘    │
 └─────────────────────────────┼───────────────────────────────────┘
@@ -342,25 +342,25 @@ The memory layer provides persistent, searchable storage:
 ### Config Directory Structure
 
 ```
-# 全局配置 (XDG standard)
+# Global config (XDG standard)
 ~/.config/glee/
-├── config.yml              # 全局默认配置
-├── projects.yml            # 项目注册表
+├── config.yml              # Global defaults
+├── projects.yml            # Project registry
 └── credentials.yml         # API keys
 
-# 项目配置
+# Project config
 <project>/
-└── .glee/                  # gitignore 整个目录
-    ├── config.yml          # project.id, agents, dispatch 等
+└── .glee/                  # gitignore this directory
+    ├── config.yml          # project.id, agents, dispatch, etc.
     ├── memory.lance/       # LanceDB - vector search
     ├── memory.duckdb       # DuckDB - SQL queries
-    └── sessions/           # session 缓存
+    └── sessions/           # Session cache
 ```
 
 ### Project Registry
 
 ```yaml
-# ~/.config/glee/projects.yml (只存 ID 和路径，不频繁写入)
+# ~/.config/glee/projects.yml (ID and path only, infrequently written)
 projects:
   - id: 550e8400-e29b-41d4-a716-446655440000
     name: my-app
@@ -371,12 +371,12 @@ projects:
     path: /Users/yumin/work/another-app
 ```
 
-**数据分层：**
-| 数据 | 存储位置 | 原因 |
-|------|---------|------|
-| project.id, path | `projects.yml` | 不频繁变化 |
-| last_seen, 统计 | DuckDB | 频繁更新 |
-| memory, 决策 | LanceDB + DuckDB | 需要搜索 |
+**Data Layer:**
+| Data | Storage | Reason |
+|------|---------|--------|
+| project.id, path | `projects.yml` | Infrequently changed |
+| last_seen, stats | DuckDB | Frequently updated |
+| memory, decisions | LanceDB + DuckDB | Needs search |
 
 ```yaml
 # <project>/.glee/config.yml
@@ -389,12 +389,12 @@ agents:
   # ... project-specific agent config
 ```
 
-### Path Mismatch Detection (不自动更新)
+### Path Mismatch Detection (No Auto-Update)
 
-当检测到路径变化时，**不自动更新**，提示用户手动确认：
+When path mismatch is detected, **no auto-update** — prompt user to confirm:
 
 ```bash
-# 检测到路径变化
+# Path mismatch detected
 $ glee status
 Warning: Project path mismatch!
   Config path: /Users/yumin/old-path/my-app
@@ -404,7 +404,7 @@ Run 'glee update' to update the path.
 ```
 
 ```bash
-# 用户确认更新路径
+# User confirms path update
 $ glee update
 Updated project path:
   Old: /Users/yumin/old-path/my-app
@@ -681,16 +681,16 @@ glee update                   # Update project path (after moving project)
 | Package Manager | uv | Fast, modern |
 | Orchestration | LangGraph | State management, workflows |
 | Types | Pydantic | Validation, serialization |
-| Embedding | fastembed | 本地生成，无需 API，轻量快速 |
-| Vector DB | LanceDB | 嵌入式，单文件，向量搜索 |
-| SQL DB | DuckDB | 嵌入式，单文件，SQL 查询 |
+| Embedding | fastembed | Local generation, no API, lightweight & fast |
+| Vector DB | LanceDB | Embedded, single file, vector search |
+| SQL DB | DuckDB | Embedded, single file, SQL queries |
 | CLI | Typer | User-friendly CLI |
 
 ---
 
 ## Storage (Embedded, No Server)
 
-使用嵌入式数据库，无需 Docker 或外部服务器：
+Embedded databases, no Docker or external server required:
 
 ```
 .glee/
@@ -700,22 +700,22 @@ glee update                   # Update project path (after moving project)
 └── sessions/
 ```
 
-**数据流：**
+**Data Flow:**
 ```
-用户输入 / Agent 输出
+User input / Agent output
     ↓
-fastembed (本地生成 embedding)
+fastembed (local embedding generation)
     ↓
-LanceDB (存储 vector，语义搜索)
+LanceDB (store vectors, semantic search)
     ↓
-DuckDB (结构化查询，统计)
+DuckDB (structured queries, statistics)
 ```
 
-**优势：**
-- 零配置，无需 Docker
-- 全本地，无需 API
-- 单文件，易备份
-- 跨平台 (macOS, Linux, Windows)
+**Benefits:**
+- Zero config, no Docker
+- Fully local, no API
+- Single file, easy backup
+- Cross-platform (macOS, Linux, Windows)
 
 ---
 
@@ -773,7 +773,7 @@ glee/
 - [ ] `glee review` triggers multi-reviewer workflow
 - [ ] Cross-review between coders
 - [ ] `.glee/config.yml` project config
-- [ ] LanceDB + DuckDB + fastembed (嵌入式，无需服务器)
+- [ ] LanceDB + DuckDB + fastembed (embedded, no server)
 - [ ] **Auto memory injection via hook** - `glee context` command for session_start hook
 
 ### Nice to Have
@@ -782,8 +782,8 @@ glee/
 - [ ] Conflict resolution for overlapping work
 
 ### Out of Scope (V2+)
-- Advanced RAG (跨项目知识库)
-- Team features (多人协作)
+- Advanced RAG (cross-project knowledge base)
+- Team features (multi-user collaboration)
 - GitHub integration
 - Knowledge marketplace
 
