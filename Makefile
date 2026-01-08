@@ -1,4 +1,4 @@
-.PHONY: install sync test lint clean version patch minor major push
+.PHONY: install sync test lint clean version patch minor major push publish
 
 # Get current version from pyproject.toml
 CURRENT_VERSION := $(shell grep -m1 'version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
@@ -49,3 +49,7 @@ patch minor major: version
 
 push:
 	git push origin main --tags
+
+# Publish to PyPI
+publish:
+	rm -rf dist/ && uv build && uv publish
