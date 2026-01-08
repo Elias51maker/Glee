@@ -3,7 +3,12 @@
 import os
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.server.sse import SseServerTransport
 from mcp.types import Tool, TextContent
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.responses import Response
+import uvicorn
 
 from .types import MCPReviewResult, ReviewStatus
 from .state.storage import LocalStorage
@@ -196,6 +201,49 @@ def create_server() -> Server:
 
 async def main():
     """Main entry point"""
+    transport = os.environ.get("GLEE_TRANSPORT", "stdio")
+
+    if transport == "sse":
+        await run_sse_server()
+    else:
+        await run_stdio_server()
+
+
+async def run_stdio_server():
+    """Run MCP server with stdio transport"""
     server = create_server()
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
+
+
+async def run_sse_server():
+    """Run MCP server with SSE transport over HTTP"""
+    server = create_server()
+    sse = SseServerTransport("/messages/")
+
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await server.run(
+                streams[0], streams[1], server.create_initialization_options()
+            )
+        return Response()
+
+    async def handle_messages(request):
+        await sse.handle_post_message(request.scope, request.receive, request._send)
+        return Response()
+
+    app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Route("/messages/", endpoint=handle_messages, methods=["POST"]),
+        ],
+    )
+
+    host = os.environ.get("GLEE_HOST", "127.0.0.1")
+    port = int(os.environ.get("GLEE_PORT", "8080"))
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    server_instance = uvicorn.Server(config)
+    await server_instance.serve()

@@ -48,6 +48,25 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
+## Docker (Recommended for Windows/Server)
+
+```bash
+# Start with Docker Compose
+docker compose up -d
+```
+
+Configure Claude Code to connect via SSE:
+
+```json
+{
+  "mcpServers": {
+    "glee": {
+      "url": "http://localhost:8080/sse"
+    }
+  }
+}
+```
+
 ## Usage
 
 ### Manual trigger

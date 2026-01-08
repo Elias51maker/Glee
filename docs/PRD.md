@@ -955,15 +955,144 @@ clean-code-agent/
 
 ---
 
+## Docker 部署（推荐）
+
+Docker 是最可靠的跨平台部署方式，特别适合：
+- Windows 用户
+- 服务器部署
+- 需要持久化数据库的场景
+
+### 架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Docker Compose                                          │
+│                                                          │
+│  ┌─────────────────┐      ┌─────────────────────────┐   │
+│  │  Glee Server    │      │  MySQL / Redis          │   │
+│  │  (MCP Server)   │ ───▶ │  (持久化存储)            │   │
+│  │  Port: 8080     │      │  Port: 3306 / 6379      │   │
+│  └─────────────────┘      └─────────────────────────┘   │
+│           │                                              │
+│           │ stdio / SSE                                  │
+│           ▼                                              │
+│  ┌─────────────────┐                                    │
+│  │  Codex CLI      │                                    │
+│  │  (installed)    │                                    │
+│  └─────────────────┘                                    │
+└─────────────────────────────────────────────────────────┘
+            │
+            │ MCP Protocol
+            ▼
+┌─────────────────────────────────────────────────────────┐
+│  Claude Code (Host)                                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+### docker-compose.yml
+
+```yaml
+version: '3.8'
+
+services:
+  glee:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=mysql://glee:glee@db:3306/glee
+      - CODEX_PATH=/usr/local/bin/codex
+    volumes:
+      - ./workspace:/workspace  # 挂载代码目录
+    depends_on:
+      - db
+
+  db:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=glee
+      - MYSQL_USER=glee
+      - MYSQL_PASSWORD=glee
+    volumes:
+      - glee-db:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+volumes:
+  glee-db:
+```
+
+### Dockerfile
+
+```dockerfile
+FROM python:3.12-slim
+
+# Install uv
+RUN pip install uv
+
+# Install codex CLI
+RUN curl -fsSL https://codex.openai.com/install.sh | sh
+
+WORKDIR /app
+COPY . .
+
+RUN uv sync
+
+EXPOSE 8080
+
+CMD ["uv", "run", "python", "-m", "glee"]
+```
+
+### 使用方式
+
+```bash
+# 启动
+docker compose up -d
+
+# Claude Code 配置 (使用 SSE 或 stdio)
+{
+  "mcpServers": {
+    "glee": {
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+
+# 或者直接连接容器
+{
+  "mcpServers": {
+    "glee": {
+      "command": "docker",
+      "args": ["exec", "-i", "glee-glee-1", "uv", "run", "python", "-m", "glee"]
+    }
+  }
+}
+```
+
+### 优势
+
+| 特性 | 本地安装 | Docker |
+|------|----------|--------|
+| 跨平台 | 需要配置 | 一致 |
+| Windows | 需要 uv/Python | 只需 Docker |
+| 数据库 | 手动配置 | 内置 |
+| 服务器部署 | 复杂 | 简单 |
+| 隔离性 | 无 | 完全隔离 |
+
+---
+
 ## 开发状态
 
 - [x] PRD 设计
-- [x] TypeScript + LangGraph 项目初始化
+- [x] Python + LangGraph 项目初始化
 - [x] Codex CLI wrapper
 - [x] LangGraph review flow
 - [x] MCP Server 接口
-- [x] Session 状态存储
-- [x] Stop hook 脚本
+- [x] Session 状态存储 (本地 JSON)
+- [x] Claude Code 配置示例
+- [x] Docker 部署
+- [ ] MySQL/Redis 存储支持
+- [x] SSE 传输支持
 - [ ] 端到端测试
-- [ ] TiDB Cloud 存储支持
 - [ ] YOLO 模式

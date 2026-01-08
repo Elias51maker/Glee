@@ -30,7 +30,6 @@ ENV/
 
 # Glee data
 .glee/
-data/
 
 # IDE
 .vscode/
@@ -51,3 +50,18 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+
+# Docs (not needed in container)
+docs/
+
+# Development
+*.md
+!README.md
