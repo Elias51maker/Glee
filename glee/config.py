@@ -77,6 +77,28 @@ def update_project_registry(project_id: str, name: str, path: str) -> None:
     save_projects_registry(projects)
 
 
+def _add_to_gitignore(project_path: str, entry: str) -> None:
+    """Add an entry to .gitignore if not already present."""
+    gitignore_path = Path(project_path) / ".gitignore"
+
+    # Skip if .gitignore doesn't exist
+    if not gitignore_path.exists():
+        return
+
+    content = gitignore_path.read_text()
+    # Check for exact line match (with or without trailing newline)
+    lines = content.splitlines()
+    if entry in lines or entry.rstrip("/") in lines:
+        return  # Already present
+
+    # Append to existing file
+    with open(gitignore_path, "a") as f:
+        # Add newline if file doesn't end with one
+        if content and not content.endswith("\n"):
+            f.write("\n")
+        f.write(f"{entry}\n")
+
+
 def init_project(project_path: str, project_id: str | None = None) -> dict[str, Any]:
     """Initialize a Glee project."""
     project_path = os.path.abspath(project_path)
@@ -106,6 +128,9 @@ def init_project(project_path: str, project_id: str | None = None) -> dict[str, 
 
     with open(config_path, "w") as f:
         _dump_yaml(config, f)
+
+    # Add .glee/ to .gitignore
+    _add_to_gitignore(project_path, ".glee/")
 
     update_project_registry(config["project"]["id"], config["project"]["name"], project_path)
     return config
