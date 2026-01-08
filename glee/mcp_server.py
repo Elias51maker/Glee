@@ -153,13 +153,21 @@ async def _handle_status() -> list[TextContent]:
 async def _handle_review(arguments: dict[str, Any]) -> list[TextContent]:
     """Handle glee_review tool call."""
     import concurrent.futures
+    from pathlib import Path
 
     from glee.agents import registry
     from glee.config import get_connected_agents, get_project_config
+    from glee.logging import get_agent_logger
 
     config = get_project_config()
     if not config:
         return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
+
+    # Get project path for logging
+    project_path = Path(config.get("project", {}).get("path", "."))
+
+    # Initialize agent logger for this project
+    get_agent_logger(project_path)
 
     # Get reviewers
     reviewers = get_connected_agents(role="reviewer")
@@ -195,6 +203,9 @@ async def _handle_review(arguments: dict[str, Any]) -> list[TextContent]:
         if not agent.is_available():
             return name, None, f"CLI {command} not installed"
 
+        # Set project_path for logging
+        agent.project_path = project_path
+
         review_focus = focus_list or []
         config_focus = reviewer_config.get("focus")
         if config_focus:
@@ -202,9 +213,13 @@ async def _handle_review(arguments: dict[str, Any]) -> list[TextContent]:
 
         try:
             result = agent.run_review(target=target, focus=review_focus if review_focus else None)
-            return name, result.output, result.error
+            # Include both output and error in response for visibility
+            if result.error:
+                return name, result.output, f"{result.error} (exit_code={result.exit_code})"
+            return name, result.output, None
         except Exception as e:
-            return name, None, str(e)
+            import traceback
+            return name, None, f"{str(e)}\n{traceback.format_exc()}"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewers)) as executor:
         futures = {executor.submit(run_single_review, r): r for r in reviewers}
@@ -213,8 +228,10 @@ async def _handle_review(arguments: dict[str, Any]) -> list[TextContent]:
             lines.append(f"=== {agent_name.upper()} ===")
             if error:
                 lines.append(f"Error: {error}")
-            elif output:
+            if output:
                 lines.append(output)
+            if not error and not output:
+                lines.append("(no output)")
             lines.append("")
 
     return [TextContent(type="text", text="\n".join(lines))]
