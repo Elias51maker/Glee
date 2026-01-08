@@ -10,6 +10,9 @@ from uuid import uuid4
 
 from loguru import logger
 
+from glee.db.schema import SQLITE_SCHEMAS
+from glee.db.sqlite import get_sqlite_connection, init_sqlite
+
 if TYPE_CHECKING:
     from loguru import Logger
 
@@ -17,8 +20,8 @@ if TYPE_CHECKING:
 class AgentRunLogger:
     """Logger for agent invocations - stores prompts, outputs, raw responses."""
 
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
+    def __init__(self, project_path: Path):
+        self.project_path = project_path
         self._conn: sqlite3.Connection | None = None
         self._init_db()
 
@@ -26,32 +29,12 @@ class AgentRunLogger:
     def conn(self) -> sqlite3.Connection:
         """Get SQLite connection."""
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = get_sqlite_connection(self.project_path)
         return self._conn
 
     def _init_db(self) -> None:
-        """Initialize the agent_logs table."""
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS agent_logs (
-                id TEXT PRIMARY KEY,
-                timestamp TEXT NOT NULL,
-                agent TEXT NOT NULL,
-                prompt TEXT NOT NULL,
-                output TEXT,
-                raw TEXT,
-                error TEXT,
-                exit_code INTEGER,
-                duration_ms INTEGER,
-                success INTEGER
-            )
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_agent_logs_timestamp ON agent_logs(timestamp)
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_agent_logs_agent ON agent_logs(agent)
-        """)
-        self.conn.commit()
+        """Initialize the agent_logs table using centralized schema."""
+        init_sqlite(self.conn, tables=["agent_logs"])
 
     def log(
         self,
@@ -125,10 +108,7 @@ def get_agent_logger(project_path: Path | None = None) -> AgentRunLogger | None:
         return _agent_logger
 
     if project_path:
-        glee_dir = project_path / ".glee"
-        glee_dir.mkdir(exist_ok=True)
-        db_path = glee_dir / "agent_logs.db"
-        _agent_logger = AgentRunLogger(db_path)
+        _agent_logger = AgentRunLogger(project_path)
         return _agent_logger
 
     return None
@@ -151,11 +131,7 @@ def query_agent_logs(
     Returns:
         List of agent log records.
     """
-    db_path = project_path / ".glee" / "agent_logs.db"
-    if not db_path.exists():
-        return []
-
-    conn = sqlite3.connect(str(db_path))
+    conn = get_sqlite_connection(project_path)
     conn.row_factory = sqlite3.Row
 
     query = "SELECT * FROM agent_logs WHERE 1=1"
@@ -171,9 +147,14 @@ def query_agent_logs(
     query += " ORDER BY timestamp DESC LIMIT ?"
     params.append(limit)
 
-    cursor = conn.execute(query, params)
-    results = [dict(row) for row in cursor.fetchall()]
-    conn.close()
+    try:
+        cursor = conn.execute(query, params)
+        results = [dict(row) for row in cursor.fetchall()]
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet
+        results = []
+    finally:
+        conn.close()
 
     return results
 
@@ -188,16 +169,16 @@ def get_agent_log(project_path: Path, log_id: str) -> dict[str, Any] | None:
     Returns:
         Log record or None if not found.
     """
-    db_path = project_path / ".glee" / "agent_logs.db"
-    if not db_path.exists():
-        return None
-
-    conn = sqlite3.connect(str(db_path))
+    conn = get_sqlite_connection(project_path)
     conn.row_factory = sqlite3.Row
 
-    cursor = conn.execute("SELECT * FROM agent_logs WHERE id = ?", [log_id])
-    row = cursor.fetchone()
-    conn.close()
+    try:
+        cursor = conn.execute("SELECT * FROM agent_logs WHERE id = ?", [log_id])
+        row = cursor.fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    finally:
+        conn.close()
 
     return dict(row) if row else None
 
@@ -205,8 +186,8 @@ def get_agent_log(project_path: Path, log_id: str) -> dict[str, Any] | None:
 class SQLiteLogHandler:
     """Custom log handler that stores logs in SQLite."""
 
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
+    def __init__(self, project_path: Path):
+        self.project_path = project_path
         self._conn: sqlite3.Connection | None = None
         self._init_db()
 
@@ -214,30 +195,12 @@ class SQLiteLogHandler:
     def conn(self) -> sqlite3.Connection:
         """Get SQLite connection."""
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = get_sqlite_connection(self.project_path)
         return self._conn
 
     def _init_db(self) -> None:
-        """Initialize the logs table."""
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                level TEXT NOT NULL,
-                message TEXT NOT NULL,
-                module TEXT,
-                function TEXT,
-                line INTEGER,
-                extra JSON
-            )
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp)
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level)
-        """)
-        self.conn.commit()
+        """Initialize the logs table using centralized schema."""
+        init_sqlite(self.conn, tables=["logs"])
 
     def write(self, message: Any) -> None:
         """Write a log record to SQLite."""
@@ -248,17 +211,13 @@ class SQLiteLogHandler:
 
         self.conn.execute(
             """
-            INSERT INTO logs (timestamp, level, message, module, function, line, extra)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO logs (timestamp, level, message)
+            VALUES (?, ?, ?)
             """,
             [
                 record["time"].isoformat(),
                 record["level"].name,
                 record["message"],
-                record["module"],
-                record["function"],
-                record["line"],
-                extra_json,
             ],
         )
         self.conn.commit()
@@ -295,11 +254,7 @@ def setup_logging(project_path: Path | None = None) -> "Logger":
 
     # SQLite logging if project path provided
     if project_path:
-        glee_dir = project_path / ".glee"
-        glee_dir.mkdir(exist_ok=True)
-        db_path = glee_dir / "logs.db"
-
-        _log_handler = SQLiteLogHandler(db_path)
+        _log_handler = SQLiteLogHandler(project_path)
         logger.add(_log_handler.write, level="DEBUG")
 
     return logger
@@ -326,11 +281,7 @@ def query_logs(
     Returns:
         List of log records.
     """
-    db_path = project_path / ".glee" / "logs.db"
-    if not db_path.exists():
-        return []
-
-    conn = sqlite3.connect(str(db_path))
+    conn = get_sqlite_connection(project_path)
     conn.row_factory = sqlite3.Row
 
     query = "SELECT * FROM logs WHERE 1=1"
@@ -355,9 +306,13 @@ def query_logs(
     query += " ORDER BY timestamp DESC LIMIT ?"
     params.append(limit)
 
-    cursor = conn.execute(query, params)
-    results = [dict(row) for row in cursor.fetchall()]
-    conn.close()
+    try:
+        cursor = conn.execute(query, params)
+        results = [dict(row) for row in cursor.fetchall()]
+    except sqlite3.OperationalError:
+        results = []
+    finally:
+        conn.close()
 
     return results
 
@@ -371,21 +326,21 @@ def get_log_stats(project_path: Path) -> dict[str, Any]:
     Returns:
         Dictionary with log stats.
     """
-    db_path = project_path / ".glee" / "logs.db"
-    if not db_path.exists():
-        return {"total": 0, "by_level": {}}
+    conn = get_sqlite_connection(project_path)
 
-    conn = sqlite3.connect(str(db_path))
+    try:
+        # Total count
+        total = conn.execute("SELECT COUNT(*) FROM logs").fetchone()[0]
 
-    # Total count
-    total = conn.execute("SELECT COUNT(*) FROM logs").fetchone()[0]
-
-    # Count by level
-    cursor = conn.execute(
-        "SELECT level, COUNT(*) as count FROM logs GROUP BY level"
-    )
-    by_level = {row[0]: row[1] for row in cursor.fetchall()}
-
-    conn.close()
+        # Count by level
+        cursor = conn.execute(
+            "SELECT level, COUNT(*) as count FROM logs GROUP BY level"
+        )
+        by_level = {row[0]: row[1] for row in cursor.fetchall()}
+    except sqlite3.OperationalError:
+        total = 0
+        by_level = {}
+    finally:
+        conn.close()
 
     return {"total": total, "by_level": by_level}

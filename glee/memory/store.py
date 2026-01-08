@@ -10,6 +10,8 @@ import lancedb
 from fastembed import TextEmbedding
 from pydantic import BaseModel
 
+from glee.db.duckdb import init_duckdb
+
 
 class MemoryEntry(BaseModel):
     """A memory entry."""
@@ -60,23 +62,9 @@ class Memory:
         return self._duck_conn
 
     def _init_duck_schema(self) -> None:
-        """Initialize DuckDB schema."""
-        self.duck.execute("""
-            CREATE TABLE IF NOT EXISTS memories (
-                id VARCHAR PRIMARY KEY,
-                category VARCHAR NOT NULL,
-                content TEXT NOT NULL,
-                metadata JSON,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        self.duck.execute("""
-            CREATE TABLE IF NOT EXISTS stats (
-                key VARCHAR PRIMARY KEY,
-                value JSON,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        """Initialize DuckDB schema using centralized definitions."""
+        if self._duck_conn is not None:
+            init_duckdb(self._duck_conn, tables=["memories", "stats"])
 
     def _embed(self, text: str) -> list[float]:
         """Generate embedding for text."""
