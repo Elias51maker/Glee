@@ -28,6 +28,7 @@ WORKDIR /app
 
 # Copy project files
 COPY pyproject.toml uv.lock ./
+COPY alembic.ini ./
 COPY glee/ ./glee/
 COPY README.md ./
 
@@ -37,8 +38,10 @@ RUN uv sync --frozen --no-dev
 # Create data directory
 RUN mkdir -p /app/.glee/sessions
 
-# Expose port for SSE transport (future)
+# Copy entrypoint script
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 8080
 
-# Default command - run as MCP server via stdio
-CMD ["uv", "run", "python", "-m", "glee"]
+ENTRYPOINT ["/entrypoint.sh"]

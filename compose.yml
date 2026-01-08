@@ -19,10 +19,11 @@ services:
       - GLEE_HOST=0.0.0.0
       - GLEE_PORT=8080
     volumes:
-      # Mount workspace for code access
-      - ./workspace:/workspace:ro
-      # Persist local sessions (fallback)
+      # Glee session data
       - ./data/sessions:/app/.glee/sessions
+      # AI CLI auth configs (persistent after device-auth)
+      - ./data/codex:/root/.codex
+      - ./data/claude:/root/.claude
     depends_on:
       db:
         condition: service_healthy
@@ -40,7 +41,6 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-glee}
     volumes:
       - ./data/mysql:/var/lib/mysql
-      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "3306:3306"
     healthcheck:
