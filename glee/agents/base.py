@@ -2,8 +2,8 @@
 
 import shutil
 import subprocess
-import sys
 import time
+from datetime import datetime
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -232,22 +232,27 @@ class BaseAgent(ABC):
         output_lines: list[str] = []
         error_lines: list[str] = []
 
-        # Default callback: stream to stderr AND log file so user can see reasoning
-        def default_output_callback(line: str) -> None:
-            # Write to stderr
-            sys.stderr.write(line)
-            sys.stderr.flush()
-            # Also write to streaming log file for tail -f
+        # Write to log file helper (daily rotation)
+        def write_to_log(stream_type: str, line: str) -> None:
             if self.project_path:
-                stream_log = self.project_path / ".glee" / "stream.log"
+                log_dir = self.project_path / ".glee" / "stream_logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                date_str = datetime.now().strftime("%Y%m%d")
+                log_path = log_dir / f"{stream_type}-{date_str}.log"
                 try:
-                    with open(stream_log, "a") as f:
+                    with open(log_path, "a") as f:
                         f.write(line)
                         f.flush()
                 except Exception:
                     pass
 
-        output_callback = on_output if on_output is not None else default_output_callback
+        # Stream handler that writes to log files and calls user callback
+        def stream_handler(line: str, stream_type: str = "stdout") -> None:
+            # Write to log file for tail -f
+            write_to_log(stream_type, line)
+            # Call user callback
+            if on_output is not None:
+                on_output(line)
 
         try:
             process = subprocess.Popen(
@@ -264,15 +269,14 @@ class BaseAgent(ABC):
             # Track if timeout occurred
             timed_out = False
 
-            def read_stream(stream: Any, lines: list[str], is_stderr: bool = False) -> None:
+            def read_stream(stream: Any, lines: list[str], stream_type: str = "stdout") -> None:
                 """Read from stream and collect lines."""
                 try:
                     for line in iter(stream.readline, ""):
                         if line:
                             lines.append(line)
-                            # Stream stdout to user (reviewer reasoning)
-                            if not is_stderr:
-                                output_callback(line)
+                            # Stream to user and log file
+                            stream_handler(line, stream_type)
                 except Exception:
                     pass
                 finally:
@@ -281,11 +285,11 @@ class BaseAgent(ABC):
             # Start threads to read stdout and stderr
             stdout_thread = threading.Thread(
                 target=read_stream,
-                args=(process.stdout, output_lines, False),
+                args=(process.stdout, output_lines, "stdout"),
             )
             stderr_thread = threading.Thread(
                 target=read_stream,
-                args=(process.stderr, error_lines, True),
+                args=(process.stderr, error_lines, "stderr"),
             )
             stdout_thread.start()
             stderr_thread.start()
