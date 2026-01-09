@@ -347,10 +347,15 @@ def init(
     console.print(f"  Config: .glee/config.yml")
 
     # Show agent integration status
-    if agent == "claude" and config.get("_mcp_registered"):
-        console.print(f"  Claude: [green].mcp.json created[/green]")
-    elif agent == "claude":
-        console.print(f"  Claude: [dim].mcp.json already exists[/dim]")
+    if agent == "claude":
+        if config.get("_mcp_registered"):
+            console.print(f"  MCP: [green].mcp.json created[/green]")
+        else:
+            console.print(f"  MCP: [dim].mcp.json already exists[/dim]")
+        if config.get("_hook_registered"):
+            console.print(f"  Hook: [green]context injection enabled[/green]")
+        else:
+            console.print(f"  Hook: [dim]already configured[/dim]")
     elif agent == "codex":
         console.print(f"  Codex: [yellow]integration not yet implemented[/yellow]")
     elif agent == "gemini":
@@ -478,7 +483,9 @@ def review(
 
 
 @app.command()
-def context():
+def context(
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Only output if context exists (for hooks)"),
+):
     """Get project context (for hook injection)."""
     import os
 
@@ -486,22 +493,34 @@ def context():
     from glee.memory import Memory
 
     ctx = get_project_context()
-    if not ctx:
-        console.print("[yellow]No project context found. Run 'glee init' first.[/yellow]")
-        return
+    memory_ctx = ""
 
-    # Print agent context
-    console.print(ctx)
-
-    # Add memory context if available
+    # Get memory context if available
     try:
         memory = Memory(os.getcwd())
         memory_ctx = memory.get_context()
-        if memory_ctx:
-            console.print(memory_ctx)
         memory.close()
     except Exception:
         pass  # Memory not initialized yet
+
+    # In quiet mode, only output if there's actual content
+    if quiet:
+        if ctx or memory_ctx:
+            if ctx:
+                print(ctx)
+            if memory_ctx:
+                print(memory_ctx)
+        return
+
+    # Normal mode - show messages
+    if not ctx and not memory_ctx:
+        console.print("[yellow]No project context found. Run 'glee init' first.[/yellow]")
+        return
+
+    if ctx:
+        console.print(ctx)
+    if memory_ctx:
+        console.print(memory_ctx)
 
 
 @app.command()
@@ -616,6 +635,101 @@ def memory_show(
         for r in results:
             console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('created_at')})")
             console.print(f"  {r.get('content')}")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@memory_app.command("delete")
+def memory_delete(
+    memory_id: str = typer.Argument(..., help="Memory ID to delete"),
+):
+    """Delete a specific memory entry."""
+    import os
+
+    from glee.memory import Memory
+
+    try:
+        memory = Memory(os.getcwd())
+        deleted = memory.delete(memory_id)
+        memory.close()
+
+        if deleted:
+            console.print(f"[green]Deleted memory {memory_id}[/green]")
+        else:
+            console.print(f"[yellow]Memory {memory_id} not found[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@memory_app.command("clear")
+def memory_clear(
+    category: str | None = typer.Argument(None, help="Category to clear (all if not specified)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+):
+    """Clear memories. Clears all if no category specified."""
+    import os
+
+    from glee.memory import Memory
+
+    # Confirm unless --force
+    if not force:
+        if category:
+            msg = f"Clear all memories in '{category}'?"
+        else:
+            msg = "Clear ALL memories? This cannot be undone."
+        if not typer.confirm(msg):
+            console.print("[dim]Cancelled[/dim]")
+            return
+
+    try:
+        memory = Memory(os.getcwd())
+        count = memory.clear(category)
+        memory.close()
+
+        if category:
+            console.print(f"[green]Cleared {count} memories from '{category}'[/green]")
+        else:
+            console.print(f"[green]Cleared all {count} memories[/green]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@memory_app.command("stats")
+def memory_stats():
+    """Show memory statistics."""
+    import os
+
+    from glee.memory import Memory
+
+    try:
+        memory = Memory(os.getcwd())
+        stats = memory.stats()
+        memory.close()
+
+        console.print("[bold]Memory Statistics[/bold]")
+        console.print(f"  Total: {stats['total']}")
+
+        if stats["by_category"]:
+            console.print()
+            console.print("[bold]By Category:[/bold]")
+            for cat, count in sorted(stats["by_category"].items()):
+                console.print(f"  {cat}: {count}")
+
+        if stats["oldest"]:
+            oldest = stats["oldest"]
+            if hasattr(oldest, "strftime"):
+                oldest = oldest.strftime("%Y-%m-%d %H:%M")
+            console.print(f"\n  Oldest: {oldest}")
+
+        if stats["newest"]:
+            newest = stats["newest"]
+            if hasattr(newest, "strftime"):
+                newest = newest.strftime("%Y-%m-%d %H:%M")
+            console.print(f"  Newest: {newest}")
+
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)

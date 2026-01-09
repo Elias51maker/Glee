@@ -137,6 +137,69 @@ def register_mcp_server(project_path: str) -> bool:
     return True
 
 
+def register_context_hook(project_path: str) -> bool:
+    """Register Glee context injection hook in Claude Code settings. Idempotent.
+
+    Creates .claude/settings.local.json with a hook that injects project context
+    at the start of each session via the Stop hook on the first tool use.
+
+    Returns True if hook was added, False if already registered.
+    """
+    import json
+
+    project_dir = Path(project_path)
+    claude_dir = project_dir / ".claude"
+    settings_path = claude_dir / "settings.local.json"
+
+    # Create .claude directory if needed
+    claude_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load existing settings or create empty
+    if settings_path.exists():
+        with open(settings_path) as f:
+            try:
+                settings = json.load(f)
+            except json.JSONDecodeError:
+                settings = {}
+    else:
+        settings = {}
+
+    # Initialize hooks if not present
+    if "hooks" not in settings:
+        settings["hooks"] = {}
+
+    # Check if glee context hook already exists in UserPromptSubmit
+    user_prompt_hooks = settings["hooks"].get("UserPromptSubmit", [])
+
+    # Check if our hook is already registered
+    for hook_config in user_prompt_hooks:
+        if isinstance(hook_config, dict):
+            hooks_list = hook_config.get("hooks", [])
+            for h in hooks_list:
+                if isinstance(h, dict) and h.get("command", "").startswith("glee context"):
+                    return False  # Already registered
+
+    # Add glee context hook - runs on every user prompt to inject context
+    glee_hook = {
+        "matcher": "",  # Empty matcher = run on all
+        "hooks": [
+            {
+                "type": "command",
+                "command": "glee context --quiet 2>/dev/null || true",
+            }
+        ],
+    }
+
+    user_prompt_hooks.append(glee_hook)
+    settings["hooks"]["UserPromptSubmit"] = user_prompt_hooks
+
+    # Write settings back
+    with open(settings_path, "w") as f:
+        json.dump(settings, f, indent=2)
+
+    return True
+
+
 def init_project(project_path: str, project_id: str | None = None, agent: str | None = None) -> dict[str, Any]:
     """Initialize a Glee project. Idempotent - safe to run multiple times.
 
@@ -186,6 +249,7 @@ def init_project(project_path: str, project_id: str | None = None, agent: str | 
 
     # Agent-specific integrations
     mcp_registered = False
+    hook_registered = False
     if agent == "claude":
         # Register MCP server for Claude Code (idempotent)
         # Only add .mcp.json to .gitignore if it doesn't exist yet (user hasn't made a decision)
@@ -193,6 +257,9 @@ def init_project(project_path: str, project_id: str | None = None, agent: str | 
         mcp_registered = register_mcp_server(project_path)
         if mcp_registered and not claude_code_mcp_json_exists:
             _add_to_gitignore(project_path, ".mcp.json")
+
+        # Register context injection hook (idempotent)
+        hook_registered = register_context_hook(project_path)
     # TODO: Add codex and gemini integrations when their MCP/hook systems are known
 
     update_project_registry(config["project"]["id"], config["project"]["name"], project_path)
@@ -200,6 +267,7 @@ def init_project(project_path: str, project_id: str | None = None, agent: str | 
     # Return config with registration status
     result = dict(config)
     result["_mcp_registered"] = mcp_registered
+    result["_hook_registered"] = hook_registered
     return result
 
 

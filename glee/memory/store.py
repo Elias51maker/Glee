@@ -198,6 +198,117 @@ class Memory:
 
         return "\n".join(lines)
 
+    def delete(self, memory_id: str) -> bool:
+        """Delete a memory entry by ID.
+
+        Args:
+            memory_id: The memory ID to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        # Check if exists in DuckDB
+        result = self.duck.execute(
+            "SELECT id FROM memories WHERE id = ?", [memory_id]
+        ).fetchone()
+
+        if not result:
+            return False
+
+        # Delete from DuckDB
+        self.duck.execute("DELETE FROM memories WHERE id = ?", [memory_id])
+
+        # Delete from LanceDB
+        try:
+            table = self.lance.open_table("memories")
+            table.delete(f"id = '{memory_id}'")  # type: ignore[reportUnknownMemberType]
+        except Exception:
+            pass  # Table might not exist
+
+        return True
+
+    def clear(self, category: str | None = None) -> int:
+        """Clear memories.
+
+        Args:
+            category: If specified, only clear this category. Otherwise clear all.
+
+        Returns:
+            Number of memories deleted
+        """
+        if category:
+            # Count first
+            result = self.duck.execute(
+                "SELECT COUNT(*) FROM memories WHERE category = ?", [category]
+            ).fetchone()
+            count = result[0] if result else 0
+
+            # Delete from DuckDB
+            self.duck.execute("DELETE FROM memories WHERE category = ?", [category])
+
+            # Delete from LanceDB
+            try:
+                table = self.lance.open_table("memories")
+                table.delete(f"category = '{category}'")  # type: ignore[reportUnknownMemberType]
+            except Exception:
+                pass
+        else:
+            # Count first
+            result = self.duck.execute("SELECT COUNT(*) FROM memories").fetchone()
+            count = result[0] if result else 0
+
+            # Delete all from DuckDB
+            self.duck.execute("DELETE FROM memories")
+
+            # Drop and recreate LanceDB table
+            try:
+                self.lance.drop_table("memories")
+            except Exception:
+                pass
+
+        return count
+
+    def stats(self) -> dict[str, Any]:
+        """Get memory statistics.
+
+        Returns:
+            Dictionary with stats: total, by_category, oldest, newest
+        """
+        stats: dict[str, Any] = {
+            "total": 0,
+            "by_category": {},
+            "oldest": None,
+            "newest": None,
+        }
+
+        # Total count
+        result = self.duck.execute("SELECT COUNT(*) FROM memories").fetchone()
+        stats["total"] = result[0] if result else 0
+
+        if stats["total"] == 0:
+            return stats
+
+        # Count by category
+        rows = self.duck.execute(
+            "SELECT category, COUNT(*) FROM memories GROUP BY category"
+        ).fetchall()
+        stats["by_category"] = {row[0]: row[1] for row in rows}
+
+        # Oldest and newest
+        oldest = self.duck.execute(
+            "SELECT created_at FROM memories ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+        if oldest:
+            stats["oldest"] = oldest[0]
+
+        newest = self.duck.execute(
+            "SELECT created_at FROM memories ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if newest:
+            stats["newest"] = newest[0]
+
+        return stats
+
     def close(self) -> None:
         """Close database connections."""
         if self._duck_conn:
