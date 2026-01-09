@@ -137,11 +137,11 @@ def register_mcp_server(project_path: str) -> bool:
     return True
 
 
-def register_context_hook(project_path: str) -> bool:
-    """Register Glee context injection hook in Claude Code settings. Idempotent.
+def register_session_hook(project_path: str) -> bool:
+    """Register Glee memory overview hook in Claude Code settings. Idempotent.
 
-    Creates .claude/settings.local.json with a hook that injects project context
-    at the start of each session via the Stop hook on the first tool use.
+    Creates .claude/settings.local.json with a SessionStart hook that injects
+    memory overview at session start (startup, resume, compact).
 
     Returns True if hook was added, False if already registered.
     """
@@ -168,30 +168,30 @@ def register_context_hook(project_path: str) -> bool:
     if "hooks" not in settings:
         settings["hooks"] = {}
 
-    # Check if glee context hook already exists in UserPromptSubmit
-    user_prompt_hooks = settings["hooks"].get("UserPromptSubmit", [])
+    # Check if glee hook already exists in SessionStart
+    session_hooks = settings["hooks"].get("SessionStart", [])
 
     # Check if our hook is already registered
-    for hook_config in user_prompt_hooks:
+    for hook_config in session_hooks:
         if isinstance(hook_config, dict):
             hooks_list = hook_config.get("hooks", [])
             for h in hooks_list:
-                if isinstance(h, dict) and h.get("command", "").startswith("glee context"):
+                if isinstance(h, dict) and "glee memory overview" in h.get("command", ""):
                     return False  # Already registered
 
-    # Add glee context hook - runs on every user prompt to inject context
+    # Add glee memory overview hook for startup, resume, compact
     glee_hook = {
-        "matcher": "",  # Empty matcher = run on all
+        "matcher": "startup|resume|compact",
         "hooks": [
             {
                 "type": "command",
-                "command": "glee context --quiet 2>/dev/null || true",
+                "command": "glee memory overview 2>/dev/null || true",
             }
         ],
     }
 
-    user_prompt_hooks.append(glee_hook)
-    settings["hooks"]["UserPromptSubmit"] = user_prompt_hooks
+    session_hooks.append(glee_hook)
+    settings["hooks"]["SessionStart"] = session_hooks
 
     # Write settings back
     with open(settings_path, "w") as f:
@@ -258,8 +258,8 @@ def init_project(project_path: str, project_id: str | None = None, agent: str | 
         if mcp_registered and not claude_code_mcp_json_exists:
             _add_to_gitignore(project_path, ".mcp.json")
 
-        # Register context injection hook (idempotent)
-        hook_registered = register_context_hook(project_path)
+        # Register SessionStart hook for memory overview injection
+        hook_registered = register_session_hook(project_path)
     # TODO: Add codex and gemini integrations when their MCP/hook systems are known
 
     update_project_registry(config["project"]["id"], config["project"]["name"], project_path)

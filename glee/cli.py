@@ -353,7 +353,7 @@ def init(
         else:
             console.print(f"  MCP: [dim].mcp.json already exists[/dim]")
         if config.get("_hook_registered"):
-            console.print(f"  Hook: [green]context injection enabled[/green]")
+            console.print(f"  Hook: [green]SessionStart hook registered[/green]")
         else:
             console.print(f"  Hook: [dim]already configured[/dim]")
     elif agent == "codex":
@@ -483,10 +483,8 @@ def review(
 
 
 @app.command()
-def context(
-    quiet: bool = typer.Option(False, "--quiet", "-q", help="Only output if context exists (for hooks)"),
-):
-    """Get project context (for hook injection)."""
+def overview():
+    """Show project overview: agents and memory summary."""
     import os
 
     from glee.config import get_project_context
@@ -503,18 +501,8 @@ def context(
     except Exception:
         pass  # Memory not initialized yet
 
-    # In quiet mode, only output if there's actual content
-    if quiet:
-        if ctx or memory_ctx:
-            if ctx:
-                print(ctx)
-            if memory_ctx:
-                print(memory_ctx)
-        return
-
-    # Normal mode - show messages
     if not ctx and not memory_ctx:
-        console.print("[yellow]No project context found. Run 'glee init' first.[/yellow]")
+        console.print("[yellow]No project found. Run 'glee init' first.[/yellow]")
         return
 
     if ctx:
@@ -607,28 +595,49 @@ def memory_search(
         raise typer.Exit(1)
 
 
-@memory_app.command("show")
-def memory_show(
-    category: str = typer.Argument(..., help="Category to show"),
+@memory_app.command("list")
+def memory_list(
+    category: str | None = typer.Argument(None, help="Optional category filter"),
 ):
-    """Show all memories in a category."""
+    """List all memories, optionally filtered by category."""
     import os
 
     from glee.memory import Memory
 
     try:
         memory = Memory(os.getcwd())
-        results = memory.get_by_category(category)
-        memory.close()
 
-        if not results:
-            console.print(f"[yellow]No memories in category '{category}'[/yellow]")
-            return
+        if category:
+            results = memory.get_by_category(category)
+            memory.close()
 
-        console.print(f"[bold]{category.title()} ({len(results)} entries):[/bold]")
-        for r in results:
-            console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('created_at')})")
-            console.print(f"  {r.get('content')}")
+            if not results:
+                console.print(f"[yellow]No memories in category '{category}'[/yellow]")
+                return
+
+            title = category.replace("-", " ").replace("_", " ").title()
+            console.print(f"[bold]{title} ({len(results)} entries):[/bold]")
+            for r in results:
+                console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('created_at')})")
+                console.print(f"  {r.get('content')}")
+        else:
+            categories = memory.get_categories()
+            memory.close()
+
+            if not categories:
+                console.print("[yellow]No memories found[/yellow]")
+                return
+
+            console.print("[bold]All Memories:[/bold]\n")
+            for cat in categories:
+                m = Memory(os.getcwd())
+                results = m.get_by_category(cat)
+                m.close()
+                title = cat.replace("-", " ").replace("_", " ").title()
+                console.print(f"[bold cyan]{title}[/bold cyan] ({len(results)} entries)")
+                for r in results:
+                    console.print(f"  [{r.get('id')}] {r.get('content')}")
+                console.print()
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
@@ -657,23 +666,19 @@ def memory_delete(
         raise typer.Exit(1)
 
 
-@memory_app.command("clear")
-def memory_clear(
-    category: str | None = typer.Argument(None, help="Category to clear (all if not specified)"),
+@memory_app.command("delete-category")
+def memory_delete_category(
+    category: str = typer.Argument(..., help="Category to delete all memories from"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
 ):
-    """Clear memories. Clears all if no category specified."""
+    """Delete all memories in a specific category."""
     import os
 
     from glee.memory import Memory
 
     # Confirm unless --force
     if not force:
-        if category:
-            msg = f"Clear all memories in '{category}'?"
-        else:
-            msg = "Clear ALL memories? This cannot be undone."
-        if not typer.confirm(msg):
+        if not typer.confirm(f"Delete all memories in '{category}'?"):
             console.print("[dim]Cancelled[/dim]")
             return
 
@@ -681,11 +686,54 @@ def memory_clear(
         memory = Memory(os.getcwd())
         count = memory.clear(category)
         memory.close()
+        console.print(f"[green]Deleted {count} memories from '{category}'[/green]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
 
-        if category:
-            console.print(f"[green]Cleared {count} memories from '{category}'[/green]")
-        else:
-            console.print(f"[green]Cleared all {count} memories[/green]")
+
+@memory_app.command("delete-all")
+def memory_delete_all(
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+):
+    """Delete ALL memories. Use with extreme caution."""
+    import os
+
+    from glee.memory import Memory
+
+    # Confirm unless --force
+    if not force:
+        if not typer.confirm("Delete ALL memories? This cannot be undone."):
+            console.print("[dim]Cancelled[/dim]")
+            return
+
+    try:
+        memory = Memory(os.getcwd())
+        count = memory.clear(None)
+        memory.close()
+        console.print(f"[green]Deleted all {count} memories[/green]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@memory_app.command("overview")
+def memory_overview():
+    """Show formatted memory overview (for LLM context)."""
+    import os
+
+    from glee.memory import Memory
+
+    try:
+        memory = Memory(os.getcwd())
+        overview = memory.get_context()
+        memory.close()
+
+        if not overview:
+            console.print("[yellow]No memories found[/yellow]")
+            return
+
+        console.print(overview)
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)

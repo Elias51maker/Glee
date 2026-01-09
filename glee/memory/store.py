@@ -160,41 +160,35 @@ class Memory:
         columns = ["id", "category", "content", "metadata", "created_at"]
         return [dict(zip(columns, row)) for row in result]
 
-    def get_context(self) -> str:
-        """Get formatted context for hook injection."""
+    def get_categories(self) -> list[str]:
+        """Get all unique categories."""
+        result = self.duck.execute(
+            "SELECT DISTINCT category FROM memories ORDER BY category"
+        ).fetchall()
+        return [row[0] for row in result]
+
+    def get_context(self, max_per_category: int = 5) -> str:
+        """Get formatted context for hook injection.
+
+        Dynamically includes all categories found in memory.
+
+        Args:
+            max_per_category: Maximum entries to show per category (default: 5)
+        """
         lines: list[str] = []
 
-        # Architecture decisions
-        arch = self.get_by_category("architecture")
-        if arch:
-            lines.append("### Architecture Decisions")
-            for m in arch[:5]:
-                lines.append(f"- {m['content']}")
-            lines.append("")
+        # Get all categories dynamically
+        categories = self.get_categories()
 
-        # Code conventions
-        conv = self.get_by_category("convention")
-        if conv:
-            lines.append("### Code Conventions")
-            for m in conv[:5]:
-                lines.append(f"- {m['content']}")
-            lines.append("")
-
-        # Recent decisions
-        decisions = self.get_by_category("decision")
-        if decisions:
-            lines.append("### Recent Decisions")
-            for m in decisions[:5]:
-                lines.append(f"- {m['content']}")
-            lines.append("")
-
-        # Recent review issues
-        reviews = self.get_by_category("review")
-        if reviews:
-            lines.append("### Recent Review Issues")
-            for m in reviews[:5]:
-                lines.append(f"- {m['content']}")
-            lines.append("")
+        for category in categories:
+            memories = self.get_by_category(category)
+            if memories:
+                # Format category name: "my-category" -> "My Category"
+                title = category.replace("-", " ").replace("_", " ").title()
+                lines.append(f"### {title}")
+                for m in memories[:max_per_category]:
+                    lines.append(f"- {m['content']}")
+                lines.append("")
 
         return "\n".join(lines)
 
