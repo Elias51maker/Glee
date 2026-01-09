@@ -1,6 +1,7 @@
 """Memory store combining LanceDB (vector) and DuckDB (SQL)."""
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,49 @@ from fastembed import TextEmbedding
 from pydantic import BaseModel
 
 from glee.db.duckdb import init_duckdb
+
+# Validation patterns to prevent LanceDB filter injection
+_CATEGORY_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_MEMORY_ID_PATTERN = re.compile(r"^[a-f0-9]{8}$")
+
+
+def _validate_category(category: str) -> str:
+    """Validate category to prevent filter injection.
+
+    Args:
+        category: Category string to validate
+
+    Returns:
+        The validated category
+
+    Raises:
+        ValueError: If category contains invalid characters
+    """
+    if not _CATEGORY_PATTERN.match(category):
+        raise ValueError(
+            f"Invalid category '{category}': must contain only alphanumeric, "
+            "underscore, or hyphen characters"
+        )
+    return category
+
+
+def _validate_memory_id(memory_id: str) -> str:
+    """Validate memory ID to prevent filter injection.
+
+    Args:
+        memory_id: Memory ID to validate
+
+    Returns:
+        The validated memory ID
+
+    Raises:
+        ValueError: If memory ID is not a valid 8-char hex string
+    """
+    if not _MEMORY_ID_PATTERN.match(memory_id):
+        raise ValueError(
+            f"Invalid memory_id '{memory_id}': must be an 8-character hex string"
+        )
+    return memory_id
 
 
 class MemoryEntry(BaseModel):
@@ -146,7 +190,8 @@ class Memory:
         results = table.search(vector).limit(limit)  # type: ignore[reportUnknownMemberType]
 
         if category:
-            results = results.where(f"category = '{category}'")
+            validated_category = _validate_category(category)
+            results = results.where(f"category = '{validated_category}'")
 
         return list(results.to_list())  # type: ignore[reportUnknownMemberType]
 
@@ -212,10 +257,13 @@ class Memory:
         # Delete from DuckDB
         self.duck.execute("DELETE FROM memories WHERE id = ?", [memory_id])
 
-        # Delete from LanceDB
+        # Delete from LanceDB (validate to prevent injection)
         try:
+            validated_id = _validate_memory_id(memory_id)
             table = self.lance.open_table("memories")
-            table.delete(f"id = '{memory_id}'")  # type: ignore[reportUnknownMemberType]
+            table.delete(f"id = '{validated_id}'")  # type: ignore[reportUnknownMemberType]
+        except ValueError:
+            pass  # Invalid ID format, skip LanceDB deletion
         except Exception:
             pass  # Table might not exist
 
@@ -240,12 +288,15 @@ class Memory:
             # Delete from DuckDB
             self.duck.execute("DELETE FROM memories WHERE category = ?", [category])
 
-            # Delete from LanceDB
+            # Delete from LanceDB (validate to prevent injection)
             try:
+                validated_category = _validate_category(category)
                 table = self.lance.open_table("memories")
-                table.delete(f"category = '{category}'")  # type: ignore[reportUnknownMemberType]
+                table.delete(f"category = '{validated_category}'")  # type: ignore[reportUnknownMemberType]
+            except ValueError:
+                pass  # Invalid category format, skip LanceDB deletion
             except Exception:
-                pass
+                pass  # Table might not exist
         else:
             # Count first
             result = self.duck.execute("SELECT COUNT(*) FROM memories").fetchone()

@@ -1,6 +1,7 @@
 """Logging configuration for Glee with SQLite storage."""
 
 
+import re
 import sqlite3
 import sys
 from datetime import datetime
@@ -15,13 +16,95 @@ from glee.db.sqlite import get_sqlite_connection, init_sqlite
 if TYPE_CHECKING:
     from loguru import Logger
 
+# Patterns for sensitive content redaction
+_SENSITIVE_PATTERNS = [
+    # API keys (various formats)
+    (re.compile(r"(sk-[a-zA-Z0-9]{20,})", re.IGNORECASE), r"[REDACTED_API_KEY]"),
+    (re.compile(r"(api[_-]?key\s*[=:]\s*)['\"]?([a-zA-Z0-9_-]{20,})['\"]?", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(secret[_-]?key\s*[=:]\s*)['\"]?([a-zA-Z0-9_-]{20,})['\"]?", re.IGNORECASE), r"\1[REDACTED]"),
+    # Bearer tokens
+    (re.compile(r"(Bearer\s+)([a-zA-Z0-9._-]{20,})", re.IGNORECASE), r"\1[REDACTED_TOKEN]"),
+    # Passwords in URLs or config
+    (re.compile(r"(password\s*[=:]\s*)['\"]?([^\s'\"]+)['\"]?", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(passwd\s*[=:]\s*)['\"]?([^\s'\"]+)['\"]?", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(pwd\s*[=:]\s*)['\"]?([^\s'\"]+)['\"]?", re.IGNORECASE), r"\1[REDACTED]"),
+    # Connection strings with passwords
+    (re.compile(r"(:\/\/[^:]+:)([^@]+)(@)", re.IGNORECASE), r"\1[REDACTED]\3"),
+    # AWS credentials
+    (re.compile(r"(AKIA[0-9A-Z]{16})", re.IGNORECASE), r"[REDACTED_AWS_KEY]"),
+    (re.compile(r"(aws_secret_access_key\s*[=:]\s*)['\"]?([a-zA-Z0-9/+=]{40})['\"]?", re.IGNORECASE), r"\1[REDACTED]"),
+    # GitHub tokens
+    (re.compile(r"(ghp_[a-zA-Z0-9]{36})", re.IGNORECASE), r"[REDACTED_GH_TOKEN]"),
+    (re.compile(r"(gho_[a-zA-Z0-9]{36})", re.IGNORECASE), r"[REDACTED_GH_TOKEN]"),
+    # Generic secrets
+    (re.compile(r"(token\s*[=:]\s*)['\"]?([a-zA-Z0-9_-]{20,})['\"]?", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"(secret\s*[=:]\s*)['\"]?([a-zA-Z0-9_-]{16,})['\"]?", re.IGNORECASE), r"\1[REDACTED]"),
+]
+
+# Default logging settings
+DEFAULT_LOG_SETTINGS = {
+    "enabled": True,
+    "redact_sensitive": True,
+    "max_agent_logs": 50000,  # Max agent log entries before rotation
+    "max_general_logs": 100000,  # Max general log entries before rotation
+}
+
+
+def _get_log_settings(project_path: Path) -> dict[str, Any]:
+    """Get logging settings from project config.
+
+    Args:
+        project_path: Project path containing .glee directory.
+
+    Returns:
+        Logging settings dict with defaults applied.
+    """
+    settings = DEFAULT_LOG_SETTINGS.copy()
+
+    config_path = project_path / ".glee" / "config.yml"
+    if config_path.exists():
+        import yaml
+
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+            log_config = config.get("logging", {})
+            settings.update(log_config)
+
+    return settings
+
+
+def redact_sensitive(text: str | None) -> str | None:
+    """Redact sensitive content from text.
+
+    Args:
+        text: Text that may contain sensitive information.
+
+    Returns:
+        Text with sensitive patterns redacted, or None if input is None.
+    """
+    if text is None:
+        return None
+
+    result = text
+    for pattern, replacement in _SENSITIVE_PATTERNS:
+        result = pattern.sub(replacement, result)
+
+    return result
+
 
 class AgentRunLogger:
-    """Logger for agent invocations - stores prompts, outputs, raw responses."""
+    """Logger for agent invocations - stores prompts, outputs, raw responses.
+
+    Supports:
+    - Opt-out via config (logging.enabled = false)
+    - Sensitive content redaction (logging.redact_sensitive = true)
+    - Log rotation (logging.max_agent_logs = N)
+    """
 
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self._conn: sqlite3.Connection | None = None
+        self._settings = _get_log_settings(project_path)
         self._init_db()
 
     @property
@@ -31,9 +114,42 @@ class AgentRunLogger:
             self._conn = get_sqlite_connection(self.project_path)
         return self._conn
 
+    @property
+    def enabled(self) -> bool:
+        """Check if agent logging is enabled."""
+        return self._settings.get("enabled", True)
+
     def _init_db(self) -> None:
         """Initialize the agent_logs table using centralized schema."""
         init_sqlite(self.conn, tables=["agent_logs"])
+
+    def _rotate_logs(self) -> None:
+        """Delete oldest logs if over the max limit."""
+        max_logs = self._settings.get("max_agent_logs", 1000)
+
+        try:
+            # Count current logs
+            result = self.conn.execute(
+                "SELECT COUNT(*) FROM agent_logs"
+            ).fetchone()
+            count = result[0] if result else 0
+
+            if count > max_logs:
+                # Delete oldest entries to get back under limit
+                delete_count = count - max_logs
+                self.conn.execute(
+                    """
+                    DELETE FROM agent_logs WHERE id IN (
+                        SELECT id FROM agent_logs
+                        ORDER BY timestamp ASC
+                        LIMIT ?
+                    )
+                    """,
+                    [delete_count],
+                )
+                self.conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Table might not exist yet
 
     def log(
         self,
@@ -44,7 +160,7 @@ class AgentRunLogger:
         error: str | None = None,
         exit_code: int = 0,
         duration_ms: int | None = None,
-    ) -> str:
+    ) -> str | None:
         """Log an agent run.
 
         Args:
@@ -57,8 +173,19 @@ class AgentRunLogger:
             duration_ms: Execution time in milliseconds.
 
         Returns:
-            The log ID.
+            The log ID, or None if logging is disabled.
         """
+        # Check if logging is enabled
+        if not self.enabled:
+            return None
+
+        # Apply redaction if enabled
+        if self._settings.get("redact_sensitive", True):
+            prompt = redact_sensitive(prompt) or prompt
+            output = redact_sensitive(output)
+            raw = redact_sensitive(raw)
+            error = redact_sensitive(error)
+
         log_id = str(uuid4())[:8]
         self.conn.execute(
             """
@@ -80,6 +207,10 @@ class AgentRunLogger:
             ],
         )
         self.conn.commit()
+
+        # Rotate logs if needed
+        self._rotate_logs()
+
         return log_id
 
     def close(self) -> None:
@@ -183,11 +314,16 @@ def get_agent_log(project_path: Path, log_id: str) -> dict[str, Any] | None:
 
 
 class SQLiteLogHandler:
-    """Custom log handler that stores logs in SQLite."""
+    """Custom log handler that stores logs in SQLite.
+
+    Supports log rotation via logging.max_general_logs config setting.
+    """
 
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self._conn: sqlite3.Connection | None = None
+        self._settings = _get_log_settings(project_path)
+        self._write_count = 0  # Track writes to avoid checking rotation on every write
         self._init_db()
 
     @property
@@ -201,12 +337,33 @@ class SQLiteLogHandler:
         """Initialize the logs table using centralized schema."""
         init_sqlite(self.conn, tables=["logs"])
 
+    def _rotate_logs(self) -> None:
+        """Delete oldest logs if over the max limit."""
+        max_logs = self._settings.get("max_general_logs", 5000)
+
+        try:
+            result = self.conn.execute("SELECT COUNT(*) FROM logs").fetchone()
+            count = result[0] if result else 0
+
+            if count > max_logs:
+                delete_count = count - max_logs
+                self.conn.execute(
+                    """
+                    DELETE FROM logs WHERE rowid IN (
+                        SELECT rowid FROM logs
+                        ORDER BY timestamp ASC
+                        LIMIT ?
+                    )
+                    """,
+                    [delete_count],
+                )
+                self.conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
     def write(self, message: Any) -> None:
         """Write a log record to SQLite."""
-        import json
-
         record = message.record
-        _extra_json = json.dumps(record["extra"]) if record["extra"] else None  # Reserved for future use
 
         self.conn.execute(
             """
@@ -220,6 +377,12 @@ class SQLiteLogHandler:
             ],
         )
         self.conn.commit()
+
+        # Check rotation every 100 writes to avoid overhead
+        self._write_count += 1
+        if self._write_count >= 100:
+            self._rotate_logs()
+            self._write_count = 0
 
     def close(self) -> None:
         """Close the database connection."""

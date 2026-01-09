@@ -1,12 +1,16 @@
 """SQLite database connection and helpers."""
 
 import sqlite3
+import threading
 from pathlib import Path
 
 from .schema import SQLITE_SCHEMAS
 
 # Default database filename
 SQLITE_DB_NAME = "glee.db"
+
+# Thread-local storage for SQLite connections
+_thread_local = threading.local()
 
 
 def get_sqlite_path(project_path: Path | None = None) -> Path:
@@ -23,19 +27,63 @@ def get_sqlite_path(project_path: Path | None = None) -> Path:
     return project_path / ".glee" / SQLITE_DB_NAME
 
 
+def _get_connection_cache() -> dict[str, sqlite3.Connection]:
+    """Get the thread-local connection cache, creating if needed."""
+    if not hasattr(_thread_local, "connections"):
+        _thread_local.connections = {}
+    # Thread-local attributes are dynamically typed, cast to expected type
+    cache: dict[str, sqlite3.Connection] = _thread_local.connections  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+    return cache
+
+
 def get_sqlite_connection(project_path: Path | None = None) -> sqlite3.Connection:
-    """Get a SQLite connection.
+    """Get a thread-local SQLite connection.
+
+    Each thread gets its own connection to prevent "database is locked" errors
+    when multiple threads (e.g., parallel MCP reviews) write concurrently.
 
     Args:
         project_path: Project root path. If None, uses current directory.
 
     Returns:
-        SQLite connection object.
+        SQLite connection object (thread-local).
     """
     db_path = get_sqlite_path(project_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    # check_same_thread=False allows multi-threaded access (e.g., MCP parallel reviews)
-    return sqlite3.connect(str(db_path), check_same_thread=False)
+    db_key = str(db_path)
+
+    connections = _get_connection_cache()
+
+    # Check if we have a valid connection for this path in this thread
+    if db_key in connections:
+        conn = connections[db_key]
+        try:
+            # Test if connection is still valid
+            conn.execute("SELECT 1")
+            return conn
+        except sqlite3.ProgrammingError:
+            # Connection was closed, remove from cache
+            del connections[db_key]
+
+    # Create new connection for this thread
+    conn = sqlite3.connect(str(db_path))
+    connections[db_key] = conn
+    return conn
+
+
+def close_thread_connections() -> None:
+    """Close all SQLite connections for the current thread.
+
+    Call this when a thread is finishing to clean up resources.
+    """
+    if hasattr(_thread_local, "connections"):
+        connections = _get_connection_cache()
+        for conn in connections.values():
+            try:
+                conn.close()
+            except Exception:
+                pass
+        connections.clear()
 
 
 def init_sqlite(
