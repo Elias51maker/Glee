@@ -17,6 +17,17 @@ from glee.db.duckdb import init_duckdb
 _CATEGORY_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 _MEMORY_ID_PATTERN = re.compile(r"^[a-f0-9]{8}$")
 
+# Singleton embedding model (expensive to load, share across Memory instances)
+_shared_embedder: TextEmbedding | None = None
+
+
+def _get_embedder() -> TextEmbedding:
+    """Get or create the shared embedding model singleton."""
+    global _shared_embedder
+    if _shared_embedder is None:
+        _shared_embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+    return _shared_embedder
+
 
 def _validate_category(category: str) -> str:
     """Validate category to prevent filter injection.
@@ -76,19 +87,14 @@ class Memory:
         self.lance_path = self.glee_dir / "memory.lance"
         self.duck_path = self.glee_dir / "memory.duckdb"
 
-        # Initialize embedding model (lazy)
-        self._embedder: TextEmbedding | None = None
-
         # Initialize databases
         self._lance_db: lancedb.DBConnection | None = None
         self._duck_conn: duckdb.DuckDBPyConnection | None = None
 
     @property
     def embedder(self) -> TextEmbedding:
-        """Lazy load embedding model."""
-        if self._embedder is None:
-            self._embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
-        return self._embedder
+        """Get shared embedding model singleton."""
+        return _get_embedder()
 
     @property
     def lance(self) -> lancedb.DBConnection:
