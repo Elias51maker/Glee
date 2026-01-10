@@ -232,6 +232,7 @@ Spawn an agent to execute a task:
 glee_task(
     description="Find API endpoints",           # Short (3-5 words)
     prompt="Search for all REST endpoints...",  # Full task prompt
+    agent_name="explore",                       # Optional: subagent or CLI name
     background=False,                           # Optional: run in background
     session_id=None                             # Optional: resume session
 )

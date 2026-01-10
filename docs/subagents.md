@@ -200,6 +200,7 @@ For now, subagents are for **small, scoped, parallelizable tasks**.
 glee_task(
     description="Find API endpoints",           # Short (3-5 words)
     prompt="Search for all REST endpoints...",  # Full task prompt
+    agent_name="explore",                       # Optional: subagent name or CLI
     background=False,                           # Run in background (optional)
     session_id=None                             # Resume existing session (optional)
 )
@@ -211,6 +212,7 @@ glee_task(
 |-----------|------|----------|-------------|
 | `description` | string | Yes | Short task description (3-5 words) |
 | `prompt` | string | Yes | Full task prompt for the agent |
+| `agent_name` | string | No | Subagent from `.glee/agents/*.yml` OR CLI name (codex/claude/gemini). Auto-selects if omitted. |
 | `background` | boolean | No | Run in background, default: false |
 | `session_id` | string | No | Resume existing session by ID |
 

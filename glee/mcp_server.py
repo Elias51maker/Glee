@@ -1,8 +1,10 @@
 """Glee MCP Server - Exposes Glee tools to Claude Code."""
 
+from pathlib import Path
 from typing import Any, cast
 
 from mcp.server import Server
+
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, LoggingLevel
 
@@ -207,6 +209,37 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="glee_task",
+            description="Start working on a task by spawning one agent (simple task) or orchestrating multiple agents (workflow). Use for any delegatable work - from quick web searches to complex refactoring. AI auto-selects agent if not specified. Returns session_id for follow-ups.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": "Short task description (3-5 words)",
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "Full task prompt for the agent",
+                    },
+                    "agent_name": {
+                        "type": "string",
+                        "description": "Subagent from .glee/agents/*.yml OR CLI name (codex/claude/gemini). Auto-selects if omitted.",
+                    },
+                    "background": {
+                        "type": "boolean",
+                        "description": "Run in background (default: false)",
+                        "default": False,
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Resume an existing session by ID",
+                    },
+                },
+                "required": ["description", "prompt"],
+            },
+        ),
     ]
 
 
@@ -239,6 +272,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await _handle_memory_stats()
     elif name == "glee_memory_bootstrap":
         return await _handle_memory_bootstrap()
+    elif name == "glee_task":
+        return await _handle_task(arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -855,6 +890,214 @@ Example calls:
 """)
 
     return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_task(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee_task tool call - spawn an agent to execute a task."""
+    import asyncio
+    import concurrent.futures
+    import time
+    from pathlib import Path
+
+    # Import session module functions directly
+    import glee.session as session_mod
+    from glee.agents import registry
+    from glee.config import get_project_config
+    from glee.logging import get_agent_logger
+
+    config = get_project_config()
+    if not config:
+        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
+
+    project_path = Path(config.get("project", {}).get("path", "."))
+
+    description: str = arguments.get("description", "")
+    prompt: str = arguments.get("prompt", "")
+    agent_name_arg: str | None = arguments.get("agent_name")
+    background: bool = arguments.get("background", False)
+    session_id_arg: str | None = arguments.get("session_id")
+
+    if not description or not prompt:
+        return [TextContent(type="text", text="Both 'description' and 'prompt' are required.")]
+
+    # Initialize logger
+    get_agent_logger(project_path)
+
+    # Load or create session
+    session: session_mod.Session | None = None
+    if session_id_arg:
+        session = session_mod.load_session(project_path, session_id_arg)
+        if not session:
+            return [TextContent(type="text", text=f"Session not found: {session_id_arg}")]
+        # Add new prompt to session
+        session_mod.add_message(project_path, session_id_arg, "user", prompt)
+
+    # Select agent: use provided agent_name or auto-select
+    # TODO (Phase 3): Load subagent from .glee/agents/{agent_name}.yml if exists
+    # For now, treat agent_name as CLI name directly
+    if agent_name_arg:
+        agent_cli = agent_name_arg
+        agent = registry.get(agent_cli)
+        if not agent:
+            return [TextContent(type="text", text=f"Unknown agent: {agent_name_arg}. Available: codex, claude, gemini")]
+        if not agent.is_available():
+            return [TextContent(type="text", text=f"Agent '{agent_name_arg}' is not installed.")]
+    else:
+        # Auto-select using heuristics
+        agent_cli = _select_agent(prompt)
+        agent = registry.get(agent_cli)
+
+    if not agent:
+        return [TextContent(type="text", text="No agent available. Install codex, claude, or gemini CLI.")]
+
+    if not agent.is_available():
+        # Try fallback agents
+        for fallback in ["codex", "claude", "gemini"]:
+            fallback_agent = registry.get(fallback)
+            if fallback_agent and fallback_agent.is_available():
+                agent = fallback_agent
+                agent_cli = fallback
+                break
+        else:
+            return [TextContent(type="text", text="No agent CLI available. Install codex, claude, or gemini.")]
+
+    # Create session if not resuming
+    if not session:
+        session = session_mod.create_session(project_path, description, agent_cli, prompt)
+
+    # session is guaranteed to be non-None here (either loaded or created)
+    assert session is not None
+    current_session_id: str = session["session_id"]
+
+    # Build full prompt with context
+    full_prompt = _build_task_prompt(project_path, session, prompt)
+
+    # Run agent
+    start_time = time.time()
+
+    # TODO: Implement background execution
+    if background:
+        return [TextContent(type="text", text="Background execution not yet implemented.")]
+
+    # Get running event loop for thread-safe async calls
+    loop = asyncio.get_running_loop()
+
+    def run_agent() -> tuple[str | None, str | None]:
+        agent.project_path = project_path
+        try:
+            result = agent.run(prompt=full_prompt, stream=True)
+            if result.error:
+                return result.output, f"{result.error} (exit_code={result.exit_code})"
+            return result.output, None
+        except Exception as e:
+            import traceback
+            return None, f"{str(e)}\n{traceback.format_exc()}"
+
+    # Run in thread to not block event loop
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        output, error = await loop.run_in_executor(executor, run_agent)
+
+    duration_ms = int((time.time() - start_time) * 1000)
+
+    # Complete session
+    status = "error" if error else "completed"
+    session_mod.complete_session(project_path, current_session_id, output or error or "", status)
+
+    lines = [
+        f"Task: {description}",
+        f"Agent: {agent_cli}",
+        f"Session: {current_session_id}",
+        f"Duration: {duration_ms}ms",
+        "",
+    ]
+
+    if error:
+        lines.append(f"Error: {error}")
+    if output:
+        lines.append(output)
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _select_agent(prompt: str) -> str:
+    """Select the best agent based on prompt content using simple heuristics."""
+    from glee.agents import registry
+
+    prompt_lower = prompt.lower()
+
+    # Heuristics for agent selection
+    heuristics: dict[str, list[str]] = {
+        "gemini": [
+            "search web", "google", "find online", "latest", "news",
+            "research", "look up", "what is", "documentation", "search for",
+        ],
+        "codex": [
+            "analyze code", "review", "find bugs", "refactor",
+            "security", "performance", "fix", "debug", "code",
+        ],
+        "claude": [
+            "summarize", "explain", "write", "draft", "quick",
+            "simple", "help me understand",
+        ],
+    }
+
+    for agent_name, keywords in heuristics.items():
+        if any(kw in prompt_lower for kw in keywords):
+            agent = registry.get(agent_name)
+            if agent and agent.is_available():
+                return agent_name
+
+    # Fallback: first available
+    for agent_name in ["codex", "claude", "gemini"]:
+        agent = registry.get(agent_name)
+        if agent and agent.is_available():
+            return agent_name
+
+    return "codex"  # Default
+
+
+def _build_task_prompt(
+    project_path: Path, session: dict[str, Any], new_prompt: str
+) -> str:
+    """Build the full prompt with context injection."""
+    import glee.session as session_mod
+    from glee.memory import Memory
+
+    lines: list[str] = []
+
+    # 1. Read AGENTS.md if exists
+    agents_md = project_path / "AGENTS.md"
+    if agents_md.exists():
+        try:
+            content = agents_md.read_text()
+            lines.append("<project_instructions>")
+            lines.append(content)
+            lines.append("</project_instructions>")
+            lines.append("")
+        except Exception:
+            pass
+
+    # 2. Get relevant memories
+    try:
+        memory = Memory(str(project_path))
+        # Search for memories relevant to the task
+        results = memory.search(query=new_prompt, limit=5)
+        memory.close()
+
+        if results:
+            lines.append("<project_context>")
+            for r in results:
+                lines.append(f"- [{r.get('category')}] {r.get('content')}")
+            lines.append("</project_context>")
+            lines.append("")
+    except Exception:
+        pass
+
+    # 3. Add session context (previous conversation)
+    context_prompt = session_mod.build_context_prompt(session, new_prompt)
+    lines.append(context_prompt)
+
+    return "\n".join(lines)
 
 
 async def run_server():
