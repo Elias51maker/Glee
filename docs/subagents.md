@@ -511,7 +511,7 @@ MCP can't stream stdout/stderr to clients. Same solution as reviewers:
 - [x] Basic logging to `.glee/stream_logs/`
 
 ### Phase 2: Tools (v0.4)
-- [ ] `.glee/tools/*.yml` format
+- [ ] Tool manifest format (directory tool.yml)
 - [ ] `glee_tool` MCP tool (execute tools)
 - [ ] `glee_tool_create` MCP tool (AI creates tools)
 - [ ] Built-in tools: web_search, http_request

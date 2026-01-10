@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glee.ai/schemas/tool.schema.json",
+  "title": "Glee Tool Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "description",
+    "kind",
+    "version",
+    "inputs",
+    "outputs",
+    "exec",
+    "permissions",
+    "approval"
+  ],
+  "properties": {
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "kind": { "type": "string", "enum": ["http", "command", "python"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema"],
+      "properties": {
+        "schema": { "type": "object" }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format"],
+      "properties": {
+        "format": { "type": "string", "enum": ["json", "text"] },
+        "schema": { "type": "object" }
+      }
+    },
+    "exec": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["http"],
+          "properties": {
+            "http": { "$ref": "#/$defs/httpExec" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": { "$ref": "#/$defs/commandExec" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["python"],
+          "properties": {
+            "python": { "$ref": "#/$defs/pythonExec" }
+          }
+        }
+      ]
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network", "fs", "secrets"],
+      "properties": {
+        "network": { "type": "boolean" },
+        "fs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["read", "write"],
+          "properties": {
+            "read": { "type": "array", "items": { "type": "string" } },
+            "write": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/secretEntry" }
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "reason"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "reason": { "type": "string" }
+      }
+    },
+    "examples": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/example" }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "http" } } },
+      "then": { "properties": { "exec": { "required": ["http"] } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "command" } } },
+      "then": { "properties": { "exec": { "required": ["command"] } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "python" } } },
+      "then": { "properties": { "exec": { "required": ["python"] } } }
+    }
+  ],
+  "$defs": {
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonValue" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "httpExec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "url"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]
+        },
+        "url": { "type": "string" },
+        "headers": { "$ref": "#/$defs/stringMap" },
+        "query": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        },
+        "body": { "$ref": "#/$defs/jsonValue" },
+        "response": { "$ref": "#/$defs/httpResponse" }
+      }
+    },
+    "httpResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "json_path": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "path"],
+            "properties": {
+              "name": { "type": "string" },
+              "path": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "commandExec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint"],
+      "properties": {
+        "entrypoint": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" },
+        "env": { "$ref": "#/$defs/stringMap" },
+        "stdin": { "type": "string" },
+        "stdout": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format"],
+          "properties": {
+            "format": { "type": "string", "enum": ["json", "text"] }
+          }
+        },
+        "exit_codes_ok": { "type": "array", "items": { "type": "integer" } },
+        "timeout_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "pythonExec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module", "function"],
+      "properties": {
+        "module": { "type": "string" },
+        "function": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "kwargs": { "type": "object" },
+        "venv": { "type": "string" },
+        "cwd": { "type": "string" },
+        "return": { "type": "string", "enum": ["json", "text"] },
+        "timeout_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "secretEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "required"],
+      "properties": {
+        "type": { "type": "string", "enum": ["string"] },
+        "required": { "type": "boolean" }
+      }
+    },
+    "example": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "params", "expected_output"],
+      "properties": {
+        "description": { "type": "string" },
+        "params": { "type": "object" },
+        "expected_output": { "$ref": "#/$defs/jsonValue" }
+      }
+    }
+  }
+}

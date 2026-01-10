@@ -388,6 +388,7 @@ source = { editable = "." }
 dependencies = [
     { name = "duckdb" },
     { name = "fastembed" },
+    { name = "jsonschema" },
     { name = "lancedb" },
     { name = "langgraph" },
     { name = "loguru" },
@@ -413,6 +414,7 @@ dev = [
 requires-dist = [
     { name = "duckdb", specifier = ">=1.2.0" },
     { name = "fastembed", specifier = ">=0.7.4" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "lancedb", specifier = ">=0.26.1" },
     { name = "langgraph", specifier = ">=1.0.5" },
     { name = "loguru", specifier = ">=0.7.0" },

@@ -1,5 +1,6 @@
 """Glee CLI - Stage Manager for Your AI Orchestra."""
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -154,6 +155,35 @@ def agents():
         table.add_row(name, agent.command, available)
 
     console.print(table)
+
+
+@app.command()
+def lint(
+    root: Path = typer.Option(Path("."), "--root", help="Project root containing .glee/tools"),
+):
+    """Validate tool manifests in .glee/tools."""
+    from glee.tools.lint import lint_tools
+
+    try:
+        result = lint_tools(root)
+    except FileNotFoundError as exc:
+        console.print(f"[red]Schema not found: {exc}[/red]")
+        raise typer.Exit(1)
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]Schema is invalid JSON: {exc}[/red]")
+        raise typer.Exit(1)
+
+    if not result.tool_files:
+        console.print(f"[yellow]No tools found under {result.tools_dir}[/yellow]")
+        raise typer.Exit(0)
+
+    if result.errors:
+        for error in result.errors:
+            console.print(f"[red]{error}[/red]")
+        console.print(f"[red]Found {len(result.errors)} schema error(s).[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"[green]All tool manifests are valid ({len(result.tool_files)} tool(s)).[/green]")
 
 
 # Config subcommands

@@ -1,73 +1,154 @@
 # Tools
 
-Tools are external capabilities that agents can use. Each tool is a YAML file in `.glee/tools/` that contains **everything** the agent needs to understand and use an API.
+Tools are external capabilities that agents can use. Each tool is defined by a YAML manifest in `.glee/tools/<tool_name>/tool.yml` that contains everything the agent needs to understand and execute a capability (HTTP API, shell command, or Python function).
+
+Unlike Claude Code skills, Glee tools are reusable across agents and workflows. The tool definition is the single, shared interface.
+
+Tools are directories, not single files. This keeps manifests clean and allows supporting materials (scripts, assets, templates) to live alongside the tool.
 
 **Key sections:**
-- `name`, `description` - What the tool does
-- `parameters` - Input parameters with types, descriptions, and `category`:
-  - `path` - URL path params: `/repos/${repo}/issues`
-  - `query` - Query string: `?q=${query}&count=${count}`
-  - `hash` - URL fragment: `#${section}` (for SPAs, browser automation)
-  - `body` - Request body (POST/PUT)
-  - `header` - HTTP headers
-- `api` - How to call the external API (endpoint, method, headers, body)
-- `response` - How to parse the response
-- `secrets` - Credentials (can reference env vars)
-- `examples` - **Critical** - Concrete usage examples help agents understand how to use the tool
+- `name`, `description`, `kind`, `version` - Identity and tool type
+- `inputs.schema` - JSON Schema for all inputs
+- `outputs` - Output format and optional JSON Schema
+- `exec` - Execution details for exactly one of: `http`, `command`, `python`
+- `permissions` - Network, filesystem, and secrets access (secrets map uses typed entries; values are read from env vars with the same key)
+- `approval` - Whether user approval is required and why
+- `examples` - Concrete usage examples help agents understand how to use the tool
+
+Inputs schema (JSON Schema 2020-12):
+
+```yaml
+inputs:
+  schema:
+    type: object
+    additionalProperties: false
+    required: [query]
+    properties:
+      query:
+        type: string
+      count:
+        type: integer
+        default: 10
+      freshness:
+        type: string
+```
+
+Outputs schema (JSON Schema 2020-12):
+
+```yaml
+outputs:
+  format: json
+  schema:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required: [title, url, description]
+      properties:
+        title: {type: string}
+        url: {type: string}
+        description: {type: string}
+```
+
+Glee validates inputs against `inputs.schema` before execution and validates outputs against `outputs.schema` after execution.
+
+Permissions schema:
+
+```yaml
+permissions:
+  network: false
+  fs:
+    read: ["."]
+    write: []
+  secrets:
+    BRAVE_API_KEY:
+      type: string
+      required: true
+```
+
+Secret resolution:
+
+```text
+Glee reads secrets from environment variables by name.
+If a secret is listed in permissions, it must exist in env.
+```
+
 
 ## Tool Definition Format
 
 ```yaml
-# .glee/tools/web-search.yml
+# .glee/tools/web-search/tool.yml
 name: web_search
 description: Search the web for information using Brave Search API
+kind: http
+version: 1
 
-# What the agent sees and can use
-parameters:
-  - name: query
-    type: string
-    description: The search query
-    category: query  # url | query | body | header
-    required: true
-  - name: count
-    type: integer
-    description: Number of results to return
-    category: query
-    default: 10
-  - name: freshness
-    type: string
-    description: Time filter (day, week, month, year)
-    category: query
-    required: false
+inputs:
+  schema:
+    type: object
+    additionalProperties: false
+    required: [query]
+    properties:
+      query:
+        type: string
+        description: The search query
+      count:
+        type: integer
+        description: Number of results to return
+        default: 10
+      freshness:
+        type: string
+        description: Time filter (day, week, month, year)
 
-# How to call the API
-api:
-  endpoint: https://api.search.brave.com/res/v1/web/search
-  method: GET
-  headers:
-    Accept: application/json
-    X-Subscription-Token: ${BRAVE_API_KEY}
-  query_params:
-    q: ${query}
-    count: ${count}
-    freshness: ${freshness}
+outputs:
+  format: json
+  schema:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required: [title, url, description]
+      properties:
+        title: {type: string}
+        url: {type: string}
+        description: {type: string}
 
-# How to parse the response
-response:
-  results_path: web.results
-  fields:
-    - name: title
-      path: title
-    - name: url
-      path: url
-    - name: description
-      path: description
+exec:
+  http:
+    method: GET
+    url: https://api.search.brave.com/res/v1/web/search
+    headers:
+      Accept: application/json
+      X-Subscription-Token: ${BRAVE_API_KEY}
+    query:
+      q: ${query}
+      count: ${count}
+      freshness: ${freshness}
+    response:
+      json_path: web.results
+      fields:
+        - name: title
+          path: title
+        - name: url
+          path: url
+        - name: description
+          path: description
 
-# Credentials (can reference env vars or secrets)
-secrets:
-  BRAVE_API_KEY: ${env:BRAVE_API_KEY}
+permissions:
+  network: true
+  fs:
+    read: ["."]
+    write: []
+  secrets:
+    BRAVE_API_KEY:
+      type: string
+      required: true
 
-# Examples - critical for agents to understand usage
+approval:
+  required: true
+  reason: Uses network and secrets
+
+
 examples:
   - description: Search for Python web frameworks
     params:
@@ -91,104 +172,57 @@ examples:
 ## More Examples
 
 ```yaml
-# .glee/tools/github-issues.yml
-name: github_issues
-description: List or create GitHub issues
-
-parameters:
-  - name: action
-    type: string
-    enum: [list, create, get]
-    category: path  # path | query | hash | body | header
-    required: true
-  - name: repo
-    type: string
-    description: Repository in format owner/repo
-    category: path
-    required: true
-  - name: title
-    type: string
-    description: Issue title (for create)
-    category: body
-  - name: body
-    type: string
-    description: Issue body (for create)
-    category: body
-
-api:
-  base_url: https://api.github.com
-  endpoints:
-    list:
-      path: /repos/${repo}/issues
-      method: GET
-    create:
-      path: /repos/${repo}/issues
-      method: POST
-      body:
-        title: ${title}
-        body: ${body}
-    get:
-      path: /repos/${repo}/issues/${issue_number}
-      method: GET
-  headers:
-    Authorization: Bearer ${GITHUB_TOKEN}
-    Accept: application/vnd.github+json
-
-secrets:
-  GITHUB_TOKEN: ${env:GITHUB_TOKEN}
-
-examples:
-  - description: List open issues in a repo
-    params:
-      action: list
-      repo: "anthropics/claude-code"
-    expected_output: |
-      [{"number": 123, "title": "Bug in parsing", "state": "open"}, ...]
-
-  - description: Create a new issue
-    params:
-      action: create
-      repo: "myorg/myrepo"
-      title: "Add dark mode support"
-      body: "Users have requested dark mode..."
-    expected_output: |
-      {"number": 456, "title": "Add dark mode support", "html_url": "https://github.com/myorg/myrepo/issues/456"}
-```
-
-```yaml
-# .glee/tools/slack-notify.yml
+# .glee/tools/slack-notify/tool.yml
 name: slack_notify
 description: Send a message to a Slack channel
+kind: http
+version: 1
 
-parameters:
-  - name: channel
-    type: string
-    description: Channel name or ID
-    category: body
-    required: true
-  - name: message
-    type: string
-    description: Message text
-    category: body
-    required: true
-  - name: thread_ts
-    type: string
-    description: Thread timestamp (for replies)
-    category: body
+inputs:
+  schema:
+    type: object
+    additionalProperties: false
+    required: [channel, message]
+    properties:
+      channel:
+        type: string
+        description: Channel name or ID
+      message:
+        type: string
+        description: Message text
+      thread_ts:
+        type: string
+        description: Thread timestamp (for replies)
 
-api:
-  endpoint: https://slack.com/api/chat.postMessage
-  method: POST
-  headers:
-    Authorization: Bearer ${SLACK_BOT_TOKEN}
-    Content-Type: application/json
-  body:
-    channel: ${channel}
-    text: ${message}
-    thread_ts: ${thread_ts}
+outputs:
+  format: json
 
-secrets:
-  SLACK_BOT_TOKEN: ${env:SLACK_BOT_TOKEN}
+exec:
+  http:
+    method: POST
+    url: https://slack.com/api/chat.postMessage
+    headers:
+      Authorization: Bearer ${SLACK_BOT_TOKEN}
+      Content-Type: application/json
+    body:
+      channel: ${channel}
+      text: ${message}
+      thread_ts: ${thread_ts}
+
+permissions:
+  network: true
+  fs:
+    read: ["."]
+    write: []
+  secrets:
+    SLACK_BOT_TOKEN:
+      type: string
+      required: true
+
+approval:
+  required: true
+  reason: Uses network and secrets
+
 
 examples:
   - description: Send a notification to #general
@@ -207,23 +241,141 @@ examples:
       {"ok": true, "ts": "1234567890.789012"}
 ```
 
+```yaml
+# .glee/tools/repo-scan/tool.yml
+name: repo_scan
+description: Scan repo for TODOs
+kind: command
+version: 1
+
+inputs:
+  schema:
+    type: object
+    additionalProperties: false
+    properties:
+      path:
+        type: string
+        description: Directory to scan
+        default: "."
+
+outputs:
+  format: text
+
+exec:
+  command:
+    entrypoint: ./scripts/scan_todos.sh
+    args: ["${path}"]
+    cwd: .
+    stdout:
+      format: text
+    exit_codes_ok: [0]
+    timeout_ms: 30000
+
+permissions:
+  network: false
+  fs:
+    read: ["."]
+    write: []
+  secrets: {}
+
+approval:
+  required: false
+  reason: Read-only scan
+
+
+examples:
+  - description: Scan current repo
+    params:
+      path: "."
+    expected_output: |
+      TODO: ...
+```
+
+```yaml
+# .glee/tools/repo-stats/tool.yml
+name: repo_stats
+description: Compute repo stats (files, LOC)
+kind: python
+version: 1
+
+inputs:
+  schema:
+    type: object
+    additionalProperties: false
+    properties:
+      path:
+        type: string
+        description: Directory to analyze
+        default: "."
+
+outputs:
+  format: json
+
+exec:
+  python:
+    module: tools.repo_stats
+    function: run
+    args: ["${path}"]
+    venv: .venv
+    cwd: .
+    return: json
+    timeout_ms: 30000
+
+permissions:
+  network: false
+  fs:
+    read: ["."]
+    write: []
+  secrets: {}
+
+approval:
+  required: false
+  reason: Read-only analysis
+
+
+examples:
+  - description: Get stats for current repo
+    params:
+      path: "."
+    expected_output: |
+      {"files": 120, "loc": 15342}
+```
+
 ## How Agents Use Tools
 
-1. Agent reads tool definition (name, description, parameters)
+1. Agent reads tool definition (name, description, inputs.schema, kind)
 2. Agent decides to use tool based on task
-3. Agent generates parameter values
-4. Glee executes the API call using the `api` section
-5. Glee parses response using the `response` section
+3. Agent generates input values (validated against `inputs.schema`)
+4. Glee executes the tool using the `exec` block for its `kind`
+5. Glee validates and normalizes output using the `outputs` section
 6. Agent receives clean result
 
 ```
 Agent: "I need to search for Python frameworks"
-    ↓ reads .glee/tools/web-search.yml
+    -> reads .glee/tools/web-search/tool.yml
 Agent: "I'll use web_search with query='best python frameworks'"
-    ↓ glee_tool(name="web_search", params={query: "best python frameworks"})
+    -> glee_tool(name="web_search", params={query: "best python frameworks"})
 Glee: executes HTTP request to Brave API
-    ↓ parses response
+    -> parses response
 Agent: receives [{title, url, description}, ...]
+```
+
+## Tool Storage and Discovery
+
+Glee loads tools from `.glee/tools/<tool_name>/tool.yml`.
+
+For tools, relative paths in `exec.command.entrypoint` are resolved from the tool directory unless absolute.
+
+Tool directories can include supporting materials next to the manifest:
+
+```
+.glee/
+└── tools/
+    └── web-search/
+        ├── tool.yml
+        ├── scripts/
+        ├── assets/
+        └── README.md
 ```
 
 ## Directory Structure
@@ -233,23 +385,36 @@ Agent: receives [{title, url, description}, ...]
 ├── config.yml
 ├── agents/           # Reusable workers
 ├── workflows/        # Orchestration
-├── tools/            # External APIs
-│   ├── web-search.yml
-│   ├── github-issues.yml
-│   ├── slack-notify.yml
+├── tools/            # Tools (HTTP, command, python)
+│   ├── web-search/
+│   ├── repo-scan/
+│   ├── repo-stats/
+│   ├── slack-notify/
 │   └── ...
 └── sessions/
 ```
 
+## Schema and Linting
+
+Tool manifest schema: `glee/schemas/tool.schema.json`
+
+Lint tools under a project root:
+
+```bash
+glee lint
+# or
+glee lint --root path/to/project
+```
+
 ## AI-Native Tool Creation
 
-Agents can also **create new tools**. If an agent needs to use an API that doesn't have a tool definition, it can:
+Agents can also **create new tools**. If an agent needs a capability that doesn't have a tool definition, it can:
 
-1. Read the API documentation (via web search or provided docs)
-2. Create a new `.glee/tools/*.yml` file
+1. Read the relevant documentation (API, CLI, or script) via web search or provided docs
+2. Create a new manifest in `.glee/tools/<name>/tool.yml`
 3. Use the new tool
 
-This enables fully autonomous operation — agents aren't limited to pre-defined tools.
+This enables fully autonomous operation - agents aren't limited to pre-defined tools.
 
 ## MCP Tools
 
@@ -259,7 +424,7 @@ Execute a tool defined in `.glee/tools/`:
 
 ```python
 glee_tool(
-    name="web_search",              # Tool name (matches .glee/tools/{name}.yml)
+    name="web_search",              # Tool name (matches .glee/tools/{name}/tool.yml)
     params={                         # Parameters for the tool
         "query": "best python frameworks",
         "count": 5
@@ -277,12 +442,16 @@ glee_tool_create(
     name="weather",
     definition={
         "description": "Get current weather for a location",
-        "parameters": [...],
-        "api": {...},
-        "secrets": {...}
+        "kind": "http",
+        "version": 1,
+        "inputs": {"schema": {...}},
+        "outputs": {"format": "json"},
+        "exec": {...},
+        "permissions": {...},
+        "approval": {...}
     }
 )
-# Creates .glee/tools/weather.yml
+# Creates .glee/tools/weather/tool.yml
 ```
 
 ### `glee_tools_list`
@@ -294,7 +463,7 @@ glee_tools_list()
 # Returns:
 # [
 #   {"name": "web_search", "description": "Search the web..."},
-#   {"name": "github_issues", "description": "List or create GitHub issues"},
+#   {"name": "repo_scan", "description": "Scan repo for TODOs"},
 #   {"name": "slack_notify", "description": "Send a message to Slack"}
 # ]
 ```
@@ -309,7 +478,7 @@ glee_tools_list()
 - [x] Basic logging to `.glee/stream_logs/`
 
 ### Phase 2: Tools (v0.4)
-- [ ] `.glee/tools/*.yml` format
+- [ ] Tool manifest format (directory tool.yml)
 - [ ] `glee_tool` MCP tool (execute tools)
 - [ ] `glee_tool_create` MCP tool (AI creates tools)
 - [ ] `glee_tools_list` MCP tool

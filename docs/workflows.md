@@ -220,7 +220,7 @@ This allows AI to compose agents without human-defined workflow files.
 
 See [tools.md](tools.md) for the full Tools documentation.
 
-Tools are external APIs (`.glee/tools/*.yml`) that agents can use. Agents can also create new tools (AI-native).
+Tools are external capabilities defined in `.glee/tools/<tool_name>/tool.yml`. Agents can also create new tools (AI-native).
 
 ## MCP Tools
 
@@ -334,7 +334,7 @@ glee_task(
 - [x] Basic logging to `.glee/stream_logs/`
 
 ### Phase 2: Tools (v0.4)
-- [ ] `.glee/tools/*.yml` format
+- [ ] Tool manifest format (directory tool.yml)
 - [ ] `glee_tool` MCP tool (execute tools)
 - [ ] `glee_tool_create` MCP tool (AI creates tools)
 - [ ] Built-in tools: web_search, http_request
