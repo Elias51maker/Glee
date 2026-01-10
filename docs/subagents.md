@@ -468,17 +468,23 @@ Useful for caching expensive operations (web searches, large file reads).
 
 Subagents are simple - they receive a prompt and return output. They don't call Glee APIs.
 
-**Glee is the manager.** If a subagent needs project context:
-1. Glee fetches relevant memories before spawning
-2. Glee injects context into the subagent's prompt
-3. Subagent runs with full context, returns result
+**Glee is the manager.** When spawning a subagent, Glee:
+1. Reads `AGENTS.md` from project root (if exists)
+2. Fetches relevant memories
+3. Injects all context into the subagent's prompt
 
 ```python
 # Glee does this internally:
-context = glee_memory_search(query=task_description)
+agents_md = read_file("AGENTS.md")  # Project instructions
+memories = glee_memory_search(query=task_description)
+
 full_prompt = f"""
+<project_instructions>
+{agents_md}
+</project_instructions>
+
 <project_context>
-{context}
+{memories}
 </project_context>
 
 {user_prompt}
@@ -486,7 +492,7 @@ full_prompt = f"""
 spawn_subagent(prompt=full_prompt)
 ```
 
-This keeps subagents stateless and simple.
+This keeps subagents stateless and simple. They just receive a rich prompt and return output.
 
 ### No streaming (MCP limitation)
 
