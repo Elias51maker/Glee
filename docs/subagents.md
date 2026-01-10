@@ -20,7 +20,7 @@ Glee becomes the **universal subagent orchestrator** for all AI coding agents.
 
 ```
 Main Agent (Claude, Codex, Gemini, Cursor, anything)
-    ↓ MCP call: glee_spawn_subagents
+    ↓ MCP call: glee_task
 Glee
     ├── Reads .glee/agents/*.yml
     ├── Spawns agents in parallel via subprocess
@@ -200,7 +200,8 @@ For now, subagents are for **small, scoped, parallelizable tasks**.
 glee_task(
     description="Find API endpoints",           # Short (3-5 words)
     prompt="Search for all REST endpoints...",  # Full task prompt
-    agent_name="explore",                       # Optional: subagent name or CLI
+    agent_name="explore",                       # Optional: subagent from .glee/agents
+    agent_cli="codex",                          # Optional: run CLI directly (ignored if agent_name is set)
     background=False,                           # Run in background (optional)
     session_id=None                             # Resume existing session (optional)
 )
@@ -212,7 +213,8 @@ glee_task(
 |-----------|------|----------|-------------|
 | `description` | string | Yes | Short task description (3-5 words) |
 | `prompt` | string | Yes | Full task prompt for the agent |
-| `agent_name` | string | No | Subagent from `.glee/agents/*.yml` OR CLI name (codex/claude/gemini). Auto-selects if omitted. |
+| `agent_name` | string | No | Subagent name from `.glee/agents/*.yml`. |
+| `agent_cli` | string | No | Run a CLI directly (`codex`, `claude`, `gemini`). Ignored when `agent_name` is set. |
 | `background` | boolean | No | Run in background, default: false |
 | `session_id` | string | No | Resume existing session by ID |
 
@@ -245,7 +247,13 @@ result = glee_task(
 
 ### Agent Selection
 
-If `agent_name` not specified, Glee auto-selects based on:
+Resolution order:
+
+1. **`agent_name` provided** → use that subagent definition
+2. **`agent_cli` provided** → run that CLI directly
+3. **Neither provided** → auto-select based on availability and heuristics
+
+Auto-selection uses:
 
 1. **Availability** - is the CLI installed?
 2. **Task type heuristics** - simple keyword matching:
@@ -296,8 +304,9 @@ CLI agents (codex, claude, gemini) are stateless - each subprocess is fresh. Gle
 
 ```json
 {
-  "session_id": "task-a1b2c3d4",
-  "agent_name": "codex",
+    "session_id": "task-a1b2c3d4",
+    "agent_name": "security-scanner",
+    "agent_cli": "codex",
   "created_at": "2025-01-09T15:00:00",
   "updated_at": "2025-01-09T15:05:00",
   "status": "completed",
@@ -443,13 +452,17 @@ Errors don't stop other tasks. Main agent decides what to do with partial result
 
 ## Memory Integration
 
-Subagent results can optionally be saved to memory:
+Subagent results can optionally be saved to memory by using `glee_memory_add` after the task completes:
 
 ```python
-glee_spawn_subagents(
-    tasks=[...],
-    save_to_memory=True,  # default False
-    memory_category="subagent-results"
+result = glee_task(
+    description="Search for API docs",
+    prompt="Find authentication documentation..."
+)
+# Cache the result for future reference
+glee_memory_add(
+    category="subagent-results",
+    content=result["output"]
 )
 ```
 
@@ -457,10 +470,95 @@ Useful for caching expensive operations (web searches, large file reads).
 
 ## Security Considerations
 
-- Subagents run with same permissions as main agent
-- No sandboxing (same as current reviewer execution)
-- Prompt injection risk: subagent prompts come from main agent, not user directly
-- Rate limiting: respect underlying API rate limits
+### Capability Model
+
+By default, subagents run with a **restricted baseline** (no network, project-only file access, and a sanitized env with no secrets). Inheriting the main agent's permissions is **opt-in**.
+
+| Risk | Default | Mitigation |
+|------|---------------|------------|
+| Subagent accesses unauthorized files | Blocked by allowlist | Expand `security.subagent_permissions.fs` or set `mode: inherit` |
+| Subagent makes network requests | Blocked | Set `network: true` or `mode: inherit` |
+| Subagent reads secrets | Blocked (env allowlist empty) | Add to `security.subagent_permissions.env.allow` |
+| Subagent runs arbitrary commands | Allowed | Require approval on subagent spawn |
+
+### Capability Configuration (Recommended)
+
+Configure subagent permissions in `.glee/config.yml`:
+
+```yaml
+# .glee/config.yml
+security:
+  subagent_permissions:
+    mode: restricted        # restricted | inherit
+    fs:
+      read: ["."]              # Only project directory
+      write: [".glee/sessions/", ".glee/stream_logs/"]
+    network: false             # No network access by default
+    env:
+      allow: ["PATH", "HOME", "LANG"]  # Explicit allowlist; no secrets by default
+    max_runtime_mins: 10       # Kill after 10 minutes
+
+  # Require user approval for subagent spawning
+  require_approval:
+    subagents: true            # Prompt before spawning
+    tools: true                # Prompt before tool execution
+```
+
+### Sandboxing (Future)
+
+Full sandboxing is planned for v0.5+:
+
+1. **Container isolation**: Subagents run in ephemeral containers
+2. **seccomp/landlock**: System call filtering on Linux
+3. **Network namespace**: Isolated network stack per subagent
+4. **Resource limits**: CPU, memory, and I/O constraints
+
+> **Current state**: Subagents run as subprocesses. OS-level sandboxing is not yet implemented; permissions are enforced by policy and runtime checks where possible. Production deployments should use container orchestration (Docker, Kubernetes) for stronger isolation.
+
+### Rate Limiting
+
+- Respect underlying API rate limits for each CLI (codex, claude, gemini)
+- Configure concurrent subagent limits in `.glee/config.yml`:
+
+```yaml
+subagents:
+  max_concurrent: 5            # Max parallel subagents
+  rate_limit_per_min: 20       # Max spawns per minute
+```
+
+### Prompt Injection Mitigation
+
+Context injection merges content from multiple sources. To prevent prompt injection:
+
+1. **Provenance markers**: Each source is wrapped in signed XML tags with source attribution
+2. **Content validation**: Memory entries are sanitized before injection
+3. **Tag escaping**: XML-like sequences in content are escaped to prevent tag breakout
+
+```python
+# Context is injected with provenance markers:
+full_prompt = f"""
+<glee:context source="AGENTS.md" trusted="true">
+{escape_xml_tags(agents_md)}
+</glee:context>
+
+<glee:context source="memory" trusted="false">
+{escape_xml_tags(memories)}
+</glee:context>
+
+<glee:context source="session:{session_id}" trusted="false">
+{escape_xml_tags(session_history)}
+</glee:context>
+
+<glee:user_prompt>
+{user_prompt}
+</glee:user_prompt>
+"""
+```
+
+**Trust levels:**
+- `AGENTS.md`: Trusted (controlled by project maintainers)
+- `memories`: Untrusted (may contain external content)
+- `session_history`: Untrusted (may contain adversarial inputs)
 
 ## Design Decisions
 
@@ -479,20 +577,22 @@ agents_md = read_file("AGENTS.md")  # Project instructions
 memories = glee_memory_search(query=task_description)
 
 full_prompt = f"""
-<project_instructions>
-{agents_md}
-</project_instructions>
+<glee:context source="AGENTS.md" trusted="true">
+{escape_xml_tags(agents_md)}
+</glee:context>
 
-<project_context>
-{memories}
-</project_context>
+<glee:context source="memory" trusted="false">
+{escape_xml_tags(memories)}
+</glee:context>
 
+<glee:user_prompt>
 {user_prompt}
+</glee:user_prompt>
 """
 spawn_subagent(prompt=full_prompt)
 ```
 
-This keeps subagents stateless and simple. They just receive a rich prompt and return output.
+This keeps subagents stateless and simple. They just receive a rich prompt with clear provenance markers.
 
 ### No streaming (MCP limitation)
 

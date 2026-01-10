@@ -149,6 +149,67 @@ steps:
 execution: parallel
 ```
 
+### Step Output Schema
+
+Each step produces a `StepResult` object:
+
+```typescript
+interface StepResult {
+  status: "success" | "error" | "timeout" | "skipped";
+  output: string | null;       // Agent output (null on error)
+  error: string | null;        // Error message (null on success)
+  duration_ms: number;
+  agent: string;               // Agent or workflow name
+  step_index: number;
+}
+```
+
+**Accessing outputs:**
+- `${steps[0].output}` — Output string from step 0 (empty string if step failed)
+- `${steps[0].status}` — Status of step 0
+- `${steps[0].error}` — Error message if step 0 failed
+
+### Parallel Group Output Schema
+
+Parallel groups aggregate results from all steps in the group:
+
+```typescript
+interface ParallelGroupResult {
+  status: "success" | "partial" | "error";  // partial = some succeeded
+  outputs: StepResult[];                     // All step results
+  succeeded: StepResult[];                   // Only successful steps
+  failed: StepResult[];                      // Only failed steps
+}
+```
+
+**Accessing parallel outputs:**
+- `${parallel_group.scanners.outputs}` — Array of all StepResults
+- `${parallel_group.scanners.succeeded}` — Only successful results
+- `${parallel_group.scanners.status}` — "success" if all passed, "partial" if some failed, "error" if all failed
+
+### Failure Semantics
+
+| Execution Mode | On Step Failure | Behavior |
+|----------------|-----------------|----------|
+| `sequential` | Stop workflow | Subsequent steps are skipped; workflow returns error |
+| `parallel` | Continue others | Failed step marked as error; workflow continues |
+| `dag` | Skip dependents | Steps depending on failed step are skipped |
+
+**Override with `on_error`:**
+
+```yaml
+steps:
+  - agent: security-scanner
+    on_error: continue    # continue | stop | skip_dependents (default: stop)
+
+  - agent: code-reviewer
+    inputs:
+      # Handle potential missing output from previous step
+      security_report: ${steps[0].output ?? "No security scan available"}
+```
+
+**Null coalescing:** Use `${expr ?? default}` to provide fallback values when a step fails.
+
 ### Nested Workflows
 
 Workflows can contain other workflows. This enables modular composition.
@@ -195,16 +256,98 @@ This is how complex systems are built:
 - **Agents**: Atomic workers (do one thing)
 - **Workflows**: Compose agents and other workflows (recursive structure)
 
-### AI-Generated Workflows
+### Execution Safeguards
 
-The main agent (Claude, etc.) can generate workflows on-the-fly:
+Nested and AI-generated workflows require safeguards to prevent runaway execution:
+
+#### Cycle Detection
+
+Glee detects workflow cycles at **validation time** (before execution):
+
+```
+Error: Workflow cycle detected: run-restaurant → serve-customers → run-restaurant
+```
+
+Cycles are checked by building a dependency graph from all `workflow:` references. If a cycle is found, the workflow fails validation and won't execute.
+
+#### Depth Limits
+
+Maximum nesting depth prevents stack exhaustion:
+
+```yaml
+# .glee/config.yml
+workflows:
+  max_depth: 5          # Default: 5 levels of nesting
+```
+
+When depth is exceeded:
+```
+Error: Workflow depth limit exceeded (5): run-restaurant → purchasing → vendor-mgmt → ...
+```
+
+#### Execution Budgets
+
+Budgets prevent runaway fan-out and resource exhaustion:
+
+```yaml
+# .glee/config.yml
+workflows:
+  budgets:
+    max_steps: 100            # Max total steps across all nested workflows
+    max_parallel: 10          # Max concurrent agents/workflows
+    max_runtime_mins: 30      # Kill workflow after 30 minutes
+    max_cost_usd: 5.00        # Stop if estimated API cost exceeds $5 (future)
+```
+
+**Budget tracking is hierarchical**: A parent workflow's budget is shared with all nested workflows. If a nested workflow exhausts the budget, the entire tree stops.
+
+```typescript
+interface ExecutionBudget {
+  steps_remaining: number;
+  parallel_slots: number;
+  runtime_deadline: Date;
+  cost_remaining_usd: number | null;
+}
+```
+
+**On budget exhaustion:**
+
+| Budget Type | Behavior |
+|-------------|----------|
+| `max_steps` | Workflow returns error; remaining steps skipped |
+| `max_parallel` | New parallel steps wait until slots free up |
+| `max_runtime_mins` | All running agents killed; workflow returns timeout |
+| `max_cost_usd` | Workflow paused; user prompted to continue or abort |
+
+#### AI-Generated Workflow Constraints
+
+AI-generated workflows have additional restrictions:
+
+1. **Cannot nest other workflows**: Only `agent:` steps allowed, not `workflow:`
+2. **Reduced budgets**: Uses `workflows.ai_generated_budgets` (lower defaults)
+3. **Approval required**: User must approve before execution
+
+```yaml
+# .glee/config.yml
+workflows:
+  ai_generated_budgets:
+    max_steps: 10             # Much lower than human-defined
+    max_parallel: 3
+    max_runtime_mins: 5
+```
+
+### AI-Generated Workflows (Future)
+
+> **Note**: This is a Phase 4 feature (v0.6+). Not yet implemented.
+
+The main agent (Claude, etc.) will be able to generate workflows on-the-fly using `glee_workflow_create`:
 
 ```python
-# Main agent creates a workflow dynamically
-glee_task(
-    description="Review auth changes",
-    prompt="Review the authentication changes for security and performance",
-    workflow={
+# Main agent creates and executes a workflow dynamically
+glee_workflow_create(
+    name="review-auth-changes",
+    definition={
+        "description": "Review authentication changes",
         "steps": [
             {"agent": "security-scanner", "inputs": {"focus": "auth"}},
             {"agent": "performance-analyzer", "inputs": {"focus": "auth"}}
@@ -212,9 +355,15 @@ glee_task(
         "execution": "parallel"
     }
 )
+
+# Then execute it
+glee_workflow(
+    name="review-auth-changes",
+    inputs={"target": "src/api/auth.py"}
+)
 ```
 
-This allows AI to compose agents without human-defined workflow files.
+This will allow AI to compose agents without human-defined workflow files.
 
 ## Tools
 
@@ -232,7 +381,8 @@ Spawn an agent to execute a task:
 glee_task(
     description="Find API endpoints",           # Short (3-5 words)
     prompt="Search for all REST endpoints...",  # Full task prompt
-    agent_name="explore",                       # Optional: subagent or CLI name
+    agent_name="explore",                       # Optional: subagent from .glee/agents
+    agent_cli="codex",                          # Optional: run CLI directly (ignored if agent_name is set)
     background=False,                           # Optional: run in background
     session_id=None                             # Optional: resume session
 )
@@ -278,20 +428,34 @@ memories = glee_memory_search(query=task_description)
 session = load_session(session_id) if session_id else None
 
 full_prompt = f"""
-<project_instructions>
-{agents_md}
-</project_instructions>
+<glee:context source="AGENTS.md" trusted="true">
+{escape_xml_tags(agents_md)}
+</glee:context>
 
-<project_context>
-{memories}
-</project_context>
+<glee:context source="memory" trusted="false">
+{escape_xml_tags(memories)}
+</glee:context>
 
-{session_history if session else ""}
+<glee:context source="session:{session_id}" trusted="false">
+{escape_xml_tags(session_history) if session else ""}
+</glee:context>
 
+<glee:user_prompt>
 {user_prompt}
+</glee:user_prompt>
 """
 spawn_subprocess(agent_cli, full_prompt)
 ```
+
+### Security: Prompt Injection Mitigation
+
+Context from multiple sources is merged with provenance markers to prevent prompt injection:
+
+- **Provenance markers**: `<glee:context source="..." trusted="...">` tags identify each source
+- **Tag escaping**: `escape_xml_tags()` prevents content from breaking out of its container
+- **Trust levels**: AGENTS.md is trusted (maintainer-controlled); memories and session history are untrusted
+
+See [subagents.md](subagents.md#prompt-injection-mitigation) for details.
 
 ## Session Management
 
@@ -305,7 +469,8 @@ CLI agents (codex, claude, gemini) are stateless. Glee stores conversation histo
 ```json
 {
   "session_id": "task-a1b2c3d4",
-  "agent_name": "codex",
+  "agent_name": "security-scanner",
+  "agent_cli": "codex",
   "created_at": "2025-01-09T15:00:00",
   "messages": [
     {"role": "user", "content": "Search for all REST endpoints"},

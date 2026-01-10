@@ -14,7 +14,7 @@ Tools are directories, not single files. This keeps manifests clean and allows s
 - `outputs` - Output format and optional JSON Schema
 - `exec` - Execution details for exactly one of: `http`, `command`, `python`
 - `permissions` - Network, filesystem, and secrets access (secrets map uses typed entries; values are read from env vars with the same key)
-- `approval` - Whether user approval is required (`reason` only needed when `required: true`)
+- `approval` - Whether user approval is required; `reason` is required when `required: true`
 - `examples` - Concrete usage examples help agents understand how to use the tool
 
 Inputs schema (JSON Schema 2020-12):
@@ -461,6 +461,36 @@ glee lint
 glee lint --root path/to/project
 ```
 
+## Capability Enforcement
+
+Tool permissions are **enforced at runtime**, not just declared:
+
+| Permission | Enforcement Mechanism |
+|------------|----------------------|
+| `network: false` | HTTP/socket calls blocked; tool runs in network-isolated subprocess |
+| `fs.read: [paths]` | File reads outside allowed paths return permission error |
+| `fs.write: [paths]` | File writes outside allowed paths return permission error |
+| `secrets` | Only declared secrets are injected; others are not available |
+
+**Enforcement implementation:**
+- `kind: command` — Subprocess runs with restricted capabilities via OS-level controls
+- `kind: python` — Module execution is sandboxed with restricted `open()`, `socket`, etc.
+- `kind: http` — Glee proxies the request; no direct network access from tool code
+
+```yaml
+# If a tool declares:
+permissions:
+  network: false
+  fs:
+    read: ["src/"]
+    write: []
+
+# Then attempting to read /etc/passwd or write any file will fail
+# even if the underlying command/script tries to do so.
+```
+
+> **Note**: Full sandboxing requires OS-level support (seccomp, landlock, or container isolation). Current implementation provides best-effort enforcement. Production deployments should run tools in isolated containers.
+
 ## AI-Native Tool Creation
 
 Agents can also **create new tools**. If an agent needs a capability that doesn't have a tool definition, it can:
@@ -469,7 +499,34 @@ Agents can also **create new tools**. If an agent needs a capability that doesn'
 2. Create a new manifest in `.glee/tools/<name>/tool.yml`
 3. Use the new tool
 
-This enables fully autonomous operation - agents aren't limited to pre-defined tools.
+### Capability Constraints for AI-Created Tools
+
+To prevent capability escalation, AI-created tools are subject to constraints:
+
+1. **Approval required**: All AI-created tools have `approval.required: true` by default
+2. **Permission ceiling**: AI-created tools cannot exceed the project's `max_permissions`:
+
+```yaml
+# .glee/config.yml
+security:
+  max_permissions:
+    network: true
+    fs:
+      read: ["."]           # Only project directory
+      write: [".glee/"]     # Only .glee directory
+    secrets: []             # No secrets for AI-created tools
+```
+
+3. **Review before first use**: User must approve the tool manifest before execution
+4. **Audit log**: All AI-created tools are logged to `.glee/audit/tools.log`
+
+```
+[2025-01-09T15:00:00] TOOL_CREATED name=weather creator=claude permissions={network:true,fs:{read:[],write:[]}}
+[2025-01-09T15:00:05] TOOL_APPROVED name=weather approver=user
+[2025-01-09T15:00:10] TOOL_EXECUTED name=weather params={location:"NYC"} status=success
+```
+
+This enables autonomous operation while maintaining security boundaries.
 
 ## MCP Tools
 

@@ -87,10 +87,10 @@
     "approval": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["required", "reason"],
+      "required": ["required"],
       "properties": {
         "required": { "type": "boolean" },
-        "reason": { "type": "string" }
+        "reason": { "type": "string", "description": "Required when approval.required is true" }
       }
     },
     "examples": {
