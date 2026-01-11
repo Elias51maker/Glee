@@ -40,10 +40,17 @@ glee review git:staged           # Review staged changes
 After running `glee init`, restart Claude Code. You'll have these MCP tools:
 
 - `glee_status` - Show project status and reviewer config
+- `glee_warmup` - Show session warmup context (goal, constraints, decisions, changes, open loops)
+- `glee_summarize_session` - Store a session summary and recent changes in memory
 - `glee_review` - Run code review with primary reviewer
 - `glee_config_set` - Set config value (e.g., reviewer.primary)
 - `glee_config_unset` - Unset config value (e.g., reviewer.secondary)
-- `glee_memory_*` - Memory management tools
+- `glee_memory_ops` - Add/list/delete memory entries
+- `glee_memory_capture` - Capture structured session memory (goal, constraints, decisions, open loops, changes)
+- `glee_memory_search` - Semantic search across memories
+- `glee_memory_overview` - Memory overview for context
+- `glee_memory_stats` - Memory statistics
+- `glee_memory_bootstrap` - Bootstrap memory from docs + structure
 
 ```
 # In Claude Code, you can now say:

@@ -1,9 +1,19 @@
 """Glee MCP Server - Exposes Glee tools to Claude Code."""
 
+from __future__ import annotations
+
+import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp.server import Server
+
+from glee.helpers import extract_capture_block, git_head, git_status_changes
+
+if TYPE_CHECKING:
+    from glee.session import Session
+
+logger = logging.getLogger(__name__)
 
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, LoggingLevel
@@ -22,6 +32,23 @@ _LOG_LEVEL_ORDER = {
     "emergency": 70,
 }
 
+_MEMORY_CAPTURE_INSTRUCTIONS = """<glee_memory_capture_instructions>
+After completing the task, append a JSON object inside:
+<glee_memory_capture> ... </glee_memory_capture>
+
+Only include keys you are confident about. Use [] for lists. Keep items short.
+Limits: constraints/decisions/open_loops max 5, recent_changes max 20, summary max 800 chars.
+Schema (all keys optional):
+{
+  "goal": "current goal",
+  "constraints": ["constraint 1", "constraint 2"],
+  "decisions": ["decision 1", "decision 2"],
+  "open_loops": ["unfinished task 1", "unfinished task 2"],
+  "recent_changes": ["M path/file.py", "A path/new.ts"],
+  "summary": "short session summary"
+}
+</glee_memory_capture_instructions>"""
+
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
@@ -33,6 +60,29 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {},
+                "required": [],
+            },
+        ),
+        Tool(
+            name="glee_warmup",
+            description="Return session warmup context (goal, constraints, decisions, changes, open loops, and memory).",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        Tool(
+            name="glee_summarize_session",
+            description="Summarize the session and store it in memory.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "Short session summary (optional).",
+                    },
+                },
                 "required": [],
             },
         ),
@@ -91,21 +141,144 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_memory_add",
-            description="Add a memory entry to the project's persistent memory. Use this to remember architecture decisions, code conventions, review feedback, or important decisions for future reference.",
+            name="glee_memory_ops",
+            description="Memory operations (add, list, delete, delete_category, delete_all).",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "category": {
+                    "action": {
                         "type": "string",
-                        "description": "Category for the memory. Common: 'architecture', 'convention', 'review', 'decision'. Custom categories allowed (e.g., 'api', 'security', 'dependencies').",
+                        "enum": [
+                            "add",
+                            "list",
+                            "delete",
+                            "delete_category",
+                            "delete_all",
+                        ],
                     },
-                    "content": {
+                    "category": {"type": "string"},
+                    "content": {"type": "string"},
+                    "metadata": {"type": "object"},
+                    "limit": {"type": "integer"},
+                    "memory_id": {"type": "string"},
+                    "confirm": {"type": "boolean"},
+                },
+                "required": ["action"],
+                "oneOf": [
+                    {
+                        "properties": {
+                            "action": {"const": "add"},
+                            "category": {"type": "string"},
+                            "content": {"type": "string"},
+                            "metadata": {"type": "object"},
+                        },
+                        "required": ["action", "category", "content"],
+                    },
+                    {
+                        "properties": {
+                            "action": {"const": "list"},
+                            "category": {"type": "string"},
+                            "limit": {"type": "integer"},
+                        },
+                        "required": ["action"],
+                    },
+                    {
+                        "properties": {
+                            "action": {"const": "delete"},
+                            "memory_id": {"type": "string"},
+                        },
+                        "required": ["action", "memory_id"],
+                    },
+                    {
+                        "properties": {
+                            "action": {"const": "delete_category"},
+                            "category": {"type": "string"},
+                            "confirm": {"type": "boolean"},
+                        },
+                        "required": ["action", "category", "confirm"],
+                    },
+                    {
+                        "properties": {
+                            "action": {"const": "delete_all"},
+                            "confirm": {"type": "boolean"},
+                        },
+                        "required": ["action", "confirm"],
+                    },
+                ],
+            },
+        ),
+        Tool(
+            name="glee_memory_capture",
+            description="Capture structured session memory: goal, constraints, decisions, open loops, and recent changes. Intended for warmup continuity.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "description": "Current goal for the project or session."},
+                    "current_goal": {"type": "string", "description": "Alias for goal."},
+                    "objective": {"type": "string", "description": "Alias for goal."},
+                    "constraints": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "string"},
+                        ],
+                        "description": "Key constraints to keep in mind (max 5).",
+                    },
+                    "key_constraints": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "string"},
+                        ],
+                        "description": "Alias for constraints.",
+                    },
+                    "decisions": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "string"},
+                        ],
+                        "description": "Recent decisions to remember (max 5).",
+                    },
+                    "recent_decisions": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "string"},
+                        ],
+                        "description": "Alias for decisions.",
+                    },
+                    "open_loops": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "string"},
+                        ],
+                        "description": "Unfinished tasks or blockers (max 5).",
+                    },
+                    "recent_changes": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "string"},
+                        ],
+                        "description": "Notable changes since last session (max 20).",
+                    },
+                    "changes": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "string"},
+                        ],
+                        "description": "Alias for recent_changes.",
+                    },
+                    "summary": {
                         "type": "string",
-                        "description": "The content to remember (e.g., 'Using FastAPI for REST endpoints')",
+                        "description": "Short session summary (max 800 chars).",
+                    },
+                    "session_summary": {
+                        "type": "string",
+                        "description": "Alias for summary.",
+                    },
+                    "git_base": {
+                        "type": "string",
+                        "description": "Git base commit or ref used for change tracking.",
                     },
                 },
-                "required": ["category", "content"],
+                "required": [],
             },
         ),
         Tool(
@@ -141,57 +314,6 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_memory_list",
-            description="List all memories, optionally filtered by category.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "category": {
-                        "type": "string",
-                        "description": "Optional category filter. If not specified, lists all memories.",
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="glee_memory_delete",
-            description="Delete a specific memory entry by ID.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "memory_id": {
-                        "type": "string",
-                        "description": "The memory ID to delete (e.g., 'a1b2c3d4')",
-                    },
-                },
-                "required": ["memory_id"],
-            },
-        ),
-        Tool(
-            name="glee_memory_delete_category",
-            description="Delete all memories in a specific category.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "category": {
-                        "type": "string",
-                        "description": "Category to delete all memories from.",
-                    },
-                },
-                "required": ["category"],
-            },
-        ),
-        Tool(
-            name="glee_memory_delete_all",
-            description="Delete ALL memories. Use with extreme caution - this cannot be undone.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
-        Tool(
             name="glee_memory_stats",
             description="Get memory statistics: total count, count by category, oldest and newest entries.",
             inputSchema={
@@ -202,7 +324,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="glee_memory_bootstrap",
-            description="Bootstrap project memory by gathering documentation and codebase structure. Returns README, CLAUDE.md, package config, and directory tree for you to analyze. After calling this, you MUST analyze the returned content and use glee_memory_add to populate memories for: architecture, conventions, dependencies, and key decisions.",
+            description="Bootstrap project memory by gathering documentation and codebase structure. Returns README, CLAUDE.md, package config, and directory tree for you to analyze. After calling this, you MUST analyze the returned content and use glee_memory_ops action=add to populate memories for: architecture, conventions, dependencies, and key decisions.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -255,24 +377,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await _handle_status()
     elif name == "glee_review":
         return await _handle_review(arguments)
+    elif name == "glee_warmup":
+        return await _handle_warmup()
+    elif name == "glee_summarize_session":
+        return await _handle_summarize_session(arguments)
     elif name == "glee_config_set":
         return await _handle_config_set(arguments)
     elif name == "glee_config_unset":
         return await _handle_config_unset(arguments)
-    elif name == "glee_memory_add":
-        return await _handle_memory_add(arguments)
+    elif name == "glee_memory_ops":
+        return await _handle_memory_ops(arguments)
+    elif name == "glee_memory_capture":
+        return await _handle_memory_capture(arguments)
     elif name == "glee_memory_search":
         return await _handle_memory_search(arguments)
     elif name == "glee_memory_overview":
         return await _handle_memory_overview()
-    elif name == "glee_memory_list":
-        return await _handle_memory_list(arguments)
-    elif name == "glee_memory_delete":
-        return await _handle_memory_delete(arguments)
-    elif name == "glee_memory_delete_category":
-        return await _handle_memory_delete_category(arguments)
-    elif name == "glee_memory_delete_all":
-        return await _handle_memory_delete_all()
     elif name == "glee_memory_stats":
         return await _handle_memory_stats()
     elif name == "glee_memory_bootstrap":
@@ -320,6 +440,52 @@ async def _handle_status() -> list[TextContent]:
             lines.append(f"  Secondary: {reviewers.get('secondary')}")
         else:
             lines.append("  Secondary: (not set)")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _handle_warmup() -> list[TextContent]:
+    """Handle glee_warmup tool call."""
+    from glee.config import get_project_config
+    from glee.warmup import build_warmup_text
+
+    config = get_project_config()
+    if not config:
+        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
+
+    project_path = Path(config.get("project", {}).get("path", "."))
+    text = build_warmup_text(project_path)
+    if not text:
+        return [TextContent(type="text", text="No warmup context available.")]
+    return [TextContent(type="text", text=text)]
+
+
+async def _handle_summarize_session(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee_summarize_session tool call."""
+    from glee.config import get_project_config
+    from glee.session_summary import summarize_session
+
+    config = get_project_config()
+    if not config:
+        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
+
+    project_path = Path(config.get("project", {}).get("path", "."))
+    summary: str | None = arguments.get("summary")
+    result = summarize_session(project_path, summary=summary)
+    added = result.get("added", {})
+    cleared = result.get("cleared", {})
+
+    lines = ["Session summary stored", "=" * 30]
+    if cleared:
+        lines.append("Cleared:")
+        for cat, count in sorted(cleared.items()):
+            lines.append(f"  {cat}: {count}")
+    if added:
+        lines.append("Added:")
+        for cat, count in sorted(added.items()):
+            lines.append(f"  {cat}: {count}")
+    if not added and not cleared:
+        lines.append("No entries captured.")
 
     return [TextContent(type="text", text="\n".join(lines))]
 
@@ -503,8 +669,8 @@ async def _handle_config_unset(arguments: dict[str, Any]) -> list[TextContent]:
     return [TextContent(type="text", text=f"Unknown config key: {key}")]
 
 
-async def _handle_memory_add(arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle glee_memory_add tool call."""
+async def _handle_memory_ops(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee_memory_ops tool call."""
     from glee.config import get_project_config
     from glee.memory import Memory
 
@@ -512,20 +678,126 @@ async def _handle_memory_add(arguments: dict[str, Any]) -> list[TextContent]:
     if not config:
         return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
 
-    category: str | None = arguments.get("category")
-    content: str | None = arguments.get("content")
+    action: str | None = arguments.get("action")
+    if not action:
+        return [TextContent(type="text", text="Action is required.")]
 
-    if not category or not content:
-        return [TextContent(type="text", text="Both 'category' and 'content' are required.")]
+    project_path = config.get("project", {}).get("path", ".")
+
+    memory = Memory(project_path)
+    try:
+        if action == "add":
+            category: str | None = arguments.get("category")
+            content: str | None = arguments.get("content")
+            metadata: dict[str, Any] | None = arguments.get("metadata")
+            if not category or not content:
+                return [TextContent(type="text", text="Both 'category' and 'content' are required.")]
+
+            memory_id = memory.add(category=category, content=content, metadata=metadata)
+            return [TextContent(type="text", text=f"Added memory {memory_id} to '{category}':\n{content}")]
+
+        if action == "list":
+            category: str | None = arguments.get("category")
+            limit_arg = arguments.get("limit", 50)
+            try:
+                limit = int(limit_arg)
+            except (TypeError, ValueError):
+                limit = 50
+            if limit <= 0:
+                limit = 50
+
+            if category:
+                results = memory.get_by_category(category)[:limit]
+                if not results:
+                    return [TextContent(type="text", text=f"No memories in category '{category}'")]
+
+                title = category.replace("-", " ").replace("_", " ").title()
+                lines = [f"{title} ({len(results)} entries):", ""]
+                for r in results:
+                    created = r.get("created_at", "")
+                    if hasattr(created, "strftime"):
+                        created = created.strftime("%Y-%m-%d %H:%M")
+                    lines.append(f"[{r.get('id')}] ({created})")
+                    lines.append(f"  {r.get('content')}")
+                    lines.append("")
+                return [TextContent(type="text", text="\n".join(lines))]
+
+            categories = memory.get_categories()
+            if not categories:
+                return [TextContent(type="text", text="No memories found.")]
+
+            lines = ["All Memories:", ""]
+            for cat in categories:
+                results = memory.get_by_category(cat)[:limit]
+                title = cat.replace("-", " ").replace("_", " ").title()
+                lines.append(f"### {title} ({len(results)} entries)")
+                for r in results:
+                    lines.append(f"  [{r.get('id')}] {r.get('content')}")
+                lines.append("")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        if action == "delete":
+            memory_id: str | None = arguments.get("memory_id")
+            if not memory_id:
+                return [TextContent(type="text", text="Memory ID is required.")]
+            deleted = memory.delete(memory_id)
+            if deleted:
+                return [TextContent(type="text", text=f"Deleted memory {memory_id}")]
+            return [TextContent(type="text", text=f"Memory {memory_id} not found")]
+
+        if action == "delete_category":
+            category = arguments.get("category")
+            confirm = arguments.get("confirm")
+            if not category:
+                return [TextContent(type="text", text="Category is required.")]
+            if confirm is not True:
+                return [TextContent(type="text", text="Set 'confirm' to true to delete a category.")]
+            count = memory.clear(category)
+            return [TextContent(type="text", text=f"Deleted {count} memories from '{category}'")]
+
+        if action == "delete_all":
+            confirm = arguments.get("confirm")
+            if confirm is not True:
+                return [TextContent(type="text", text="Set 'confirm' to true to delete all memories.")]
+            count = memory.clear(None)
+            return [TextContent(type="text", text=f"Deleted all {count} memories")]
+
+        return [TextContent(type="text", text=f"Unknown action: {action}")]
+    finally:
+        memory.close()
+
+
+async def _handle_memory_capture(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee_memory_capture tool call."""
+    from glee.config import get_project_config
+    from glee.memory.capture import capture_memory
+
+    config = get_project_config()
+    if not config:
+        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
 
     try:
         project_path = config.get("project", {}).get("path", ".")
-        memory = Memory(project_path)
-        memory_id = memory.add(category=category, content=content)
-        memory.close()
-        return [TextContent(type="text", text=f"Added memory {memory_id} to '{category}':\n{content}")]
+        result = capture_memory(project_path, arguments, source="mcp")
+        added = result.get("added", {})
+        cleared = result.get("cleared", {})
+
+        lines = ["Captured memory summary", "=" * 30]
+        if cleared:
+            lines.append("Cleared:")
+            for cat, count in sorted(cleared.items()):
+                lines.append(f"  {cat}: {count}")
+        if added:
+            lines.append("Added:")
+            for cat, count in sorted(added.items()):
+                lines.append(f"  {cat}: {count}")
+
+        if not added and not cleared:
+            lines.append("No entries captured.")
+
+        return [TextContent(type="text", text="\n".join(lines))]
     except Exception as e:
-        return [TextContent(type="text", text=f"Error adding memory: {e}")]
+        return [TextContent(type="text", text=f"Error capturing memory: {e}")]
 
 
 async def _handle_memory_search(arguments: dict[str, Any]) -> list[TextContent]:
@@ -580,138 +852,11 @@ async def _handle_memory_overview() -> list[TextContent]:
         memory.close()
 
         if not memory_ctx:
-            return [TextContent(type="text", text="No memories found. Add memories with glee_memory_add.")]
+            return [TextContent(type="text", text="No memories found. Use glee_memory_ops action=add.")]
 
         return [TextContent(type="text", text=memory_ctx)]
     except Exception as e:
         return [TextContent(type="text", text=f"Error getting memory overview: {e}")]
-
-
-async def _handle_memory_list(arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle glee_memory_list tool call."""
-    from glee.config import get_project_config
-    from glee.memory import Memory
-
-    config = get_project_config()
-    if not config:
-        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
-
-    category: str | None = arguments.get("category")
-
-    try:
-        project_path = config.get("project", {}).get("path", ".")
-        memory = Memory(project_path)
-
-        if category:
-            # List specific category
-            results = memory.get_by_category(category)
-            memory.close()
-
-            if not results:
-                return [TextContent(type="text", text=f"No memories in category '{category}'")]
-
-            title = category.replace("-", " ").replace("_", " ").title()
-            lines = [f"{title} ({len(results)} entries):", ""]
-            for r in results:
-                created = r.get("created_at", "")
-                if hasattr(created, "strftime"):
-                    created = created.strftime("%Y-%m-%d %H:%M")
-                lines.append(f"[{r.get('id')}] ({created})")
-                lines.append(f"  {r.get('content')}")
-                lines.append("")
-        else:
-            # List all categories
-            categories = memory.get_categories()
-            memory.close()
-
-            if not categories:
-                return [TextContent(type="text", text="No memories found.")]
-
-            lines = ["All Memories:", ""]
-            for cat in categories:
-                m = Memory(project_path)
-                results = m.get_by_category(cat)
-                m.close()
-                title = cat.replace("-", " ").replace("_", " ").title()
-                lines.append(f"### {title} ({len(results)} entries)")
-                for r in results:
-                    lines.append(f"  [{r.get('id')}] {r.get('content')}")
-                lines.append("")
-
-        return [TextContent(type="text", text="\n".join(lines))]
-    except Exception as e:
-        return [TextContent(type="text", text=f"Error listing memories: {e}")]
-
-
-async def _handle_memory_delete(arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle glee_memory_delete tool call."""
-    from glee.config import get_project_config
-    from glee.memory import Memory
-
-    config = get_project_config()
-    if not config:
-        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
-
-    memory_id: str | None = arguments.get("memory_id")
-    if not memory_id:
-        return [TextContent(type="text", text="Memory ID is required.")]
-
-    try:
-        project_path = config.get("project", {}).get("path", ".")
-        memory = Memory(project_path)
-        deleted = memory.delete(memory_id)
-        memory.close()
-
-        if deleted:
-            return [TextContent(type="text", text=f"Deleted memory {memory_id}")]
-        else:
-            return [TextContent(type="text", text=f"Memory {memory_id} not found")]
-    except Exception as e:
-        return [TextContent(type="text", text=f"Error deleting memory: {e}")]
-
-
-async def _handle_memory_delete_category(arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle glee_memory_delete_category tool call."""
-    from glee.config import get_project_config
-    from glee.memory import Memory
-
-    config = get_project_config()
-    if not config:
-        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
-
-    category: str | None = arguments.get("category")
-    if not category:
-        return [TextContent(type="text", text="Category is required.")]
-
-    try:
-        project_path = config.get("project", {}).get("path", ".")
-        memory = Memory(project_path)
-        count = memory.clear(category)
-        memory.close()
-
-        return [TextContent(type="text", text=f"Deleted {count} memories from '{category}'")]
-    except Exception as e:
-        return [TextContent(type="text", text=f"Error deleting category: {e}")]
-
-
-async def _handle_memory_delete_all() -> list[TextContent]:
-    """Handle glee_memory_delete_all tool call."""
-    from glee.config import get_project_config
-    from glee.memory import Memory
-
-    config = get_project_config()
-    if not config:
-        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
-
-    try:
-        project_path = config.get("project", {}).get("path", ".")
-        memory = Memory(project_path)
-        count = memory.clear(None)
-        memory.close()
-
-        return [TextContent(type="text", text=f"Deleted all {count} memories")]
-    except Exception as e:
-        return [TextContent(type="text", text=f"Error deleting all memories: {e}")]
 
 
 async def _handle_memory_stats() -> list[TextContent]:
@@ -866,7 +1011,7 @@ async def _handle_memory_bootstrap() -> list[TextContent]:
     lines.append("# Instructions")
     lines.append("=" * 50)
     lines.append("""
-Based on the documentation and structure above, analyze the project and use glee_memory_add to populate memories. Focus on:
+Based on the documentation and structure above, analyze the project and use glee_memory_ops action=add to populate memories. Focus on:
 
 1. **architecture** - Key architectural patterns, module organization, data flow
    - Main entry points and how they connect
@@ -889,9 +1034,9 @@ Based on the documentation and structure above, analyze the project and use glee
    - Design trade-offs mentioned
 
 Example calls:
-- glee_memory_add(category="architecture", content="CLI built with Typer, MCP server with mcp.server")
-- glee_memory_add(category="convention", content="Use snake_case for Python, type hints required")
-- glee_memory_add(category="dependencies", content="LanceDB for vector search, DuckDB for structured queries")
+- glee_memory_ops(action="add", category="architecture", content="CLI built with Typer, MCP server with mcp.server")
+- glee_memory_ops(action="add", category="convention", content="Use snake_case for Python, type hints required")
+- glee_memory_ops(action="add", category="dependencies", content="LanceDB for vector search, DuckDB for structured queries")
 """)
 
     return [TextContent(type="text", text="\n".join(lines))]
@@ -1017,6 +1162,7 @@ async def _handle_task(arguments: dict[str, Any]) -> list[TextContent]:
     # If using a subagent, use the rendered subagent prompt; otherwise use regular prompt
     effective_prompt = subagent_prompt if subagent_prompt else prompt
     full_prompt = _build_task_prompt(project_path, session, effective_prompt)
+    full_prompt = f"{full_prompt}\n\n{_MEMORY_CAPTURE_INSTRUCTIONS}"
 
     # Run agent
     start_time = time.time()
@@ -1044,6 +1190,35 @@ async def _handle_task(arguments: dict[str, Any]) -> list[TextContent]:
         output, error = await loop.run_in_executor(executor, run_agent)
 
     duration_ms = int((time.time() - start_time) * 1000)
+
+    capture_payload, output = extract_capture_block(output)
+
+    try:
+        from glee.memory.capture import capture_memory
+
+        capture_payload = capture_payload or {}
+        git_base_val = git_head(project_path)
+        if git_base_val and "git_base" not in capture_payload:
+            capture_payload["git_base"] = git_base_val
+
+        if "recent_changes" not in capture_payload and "changes" not in capture_payload:
+            changes, _ = git_status_changes(project_path)
+            if changes:
+                capture_payload["recent_changes"] = changes
+
+        if "summary" not in capture_payload and "session_summary" not in capture_payload:
+            if description:
+                capture_payload["summary"] = f"Task: {description}"
+
+        if capture_payload:
+            capture_memory(
+                str(project_path),
+                capture_payload,
+                source="task_auto",
+                session_id=current_session_id,
+            )
+    except Exception as e:
+        logger.warning("Failed to capture memory from task: %s", e)
 
     # Complete session
     status = "error" if error else "completed"
@@ -1103,7 +1278,7 @@ def _select_agent(prompt: str) -> str:
 
 
 def _build_task_prompt(
-    project_path: Path, session: dict[str, Any], new_prompt: str
+    project_path: Path, session: Session, new_prompt: str
 ) -> str:
     """Build the full prompt with context injection."""
     import glee.session as session_mod

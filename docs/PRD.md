@@ -284,9 +284,9 @@ glee review git:changes       # Review uncommitted changes
 glee review git:staged        # Review staged changes
 
 # Memory
-glee memory show              # Show project memory
-glee memory add <key> <value> # Add to memory
-glee memory search <query>    # Search memory
+glee memory overview                                           # Show project memory
+glee memory ops --action add --category <category> --content <content> # Add to memory
+glee memory search <query>                                     # Search memory
 
 # Logs
 glee logs show                # Show recent logs
@@ -301,7 +301,7 @@ glee logs agents              # Show agent run history
 | `glee_review` | Run review with primary reviewer |
 | `glee_config_set` | Set a config value (e.g., reviewer.primary) |
 | `glee_config_unset` | Unset a config value (e.g., reviewer.secondary) |
-| `glee_memory_*` | Memory management tools |
+| `glee_memory_ops` | Add/list/delete memory entries |
 
 ---
 

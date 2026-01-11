@@ -94,6 +94,45 @@ def load_session(project_path: str | Path, session_id: str) -> Session | None:
         return None
 
 
+def load_all_sessions(project_path: str | Path) -> list[Session]:
+    """Load all sessions, sorted by updated_at (newest first)."""
+    project_path = Path(project_path)
+    sessions_dir = project_path / ".glee" / "sessions"
+    if not sessions_dir.exists():
+        return []
+
+    sessions: list[Session] = []
+    for session_file in sessions_dir.glob("*.json"):
+        try:
+            with open(session_file) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                sessions.append(data)  # type: ignore[arg-type]
+        except (json.JSONDecodeError, OSError):
+            continue
+
+    # Sort by updated_at, newest first
+    def parse_time(value: str | None) -> datetime:
+        if not value:
+            return datetime.min
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return datetime.min
+
+    sessions.sort(key=lambda s: parse_time(s.get("updated_at")), reverse=True)
+    return sessions
+
+
+def get_latest_session(project_path: str | Path) -> tuple[Session | None, str | None]:
+    """Get the most recent session and its ID."""
+    sessions = load_all_sessions(project_path)
+    if not sessions:
+        return None, None
+    session = sessions[0]
+    return session, session.get("session_id")
+
+
 def save_session(project_path: str | Path, session: Session) -> None:
     """Save a session to disk."""
     sessions_dir = get_sessions_dir(project_path)

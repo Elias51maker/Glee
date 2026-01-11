@@ -3,7 +3,7 @@
 import os
 import uuid
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, cast
 
 import yaml
 
@@ -133,7 +133,12 @@ def register_mcp_server(project_path: str) -> bool:
 
 
 def register_session_hook(project_path: str) -> bool:
-    """Register Glee memory overview hook in Claude Code settings. Idempotent."""
+    """Register Glee hooks in Claude Code settings. Idempotent.
+
+    Registers:
+    - UserPromptSubmit: Inject warmup context at session start
+    - Stop: Capture session summary at session end
+    """
     import json
 
     project_dir = Path(project_path)
@@ -154,32 +159,82 @@ def register_session_hook(project_path: str) -> bool:
     if "hooks" not in settings:
         settings["hooks"] = {}
 
-    session_hooks = settings["hooks"].get("SessionStart", [])
+    hooks_dict = cast(dict[str, list[dict[str, Any]]], settings["hooks"])
+    updated = False
 
-    for hook_config in session_hooks:
-        if isinstance(hook_config, dict):
-            hooks_list = hook_config.get("hooks", [])
-            for h in hooks_list:
-                if isinstance(h, dict) and "glee memory overview" in h.get("command", ""):
-                    return False
+    # Helper to check if a hook command exists
+    def has_hook_command(hook_name: str, command_substr: str) -> bool:
+        hooks_list = hooks_dict.get(hook_name, [])
+        for hook_config in hooks_list:
+            inner_hooks = cast(list[dict[str, Any]], hook_config.get("hooks", []))
+            for h in inner_hooks:
+                cmd = str(h.get("command", ""))
+                if command_substr in cmd:
+                    return True
+        return False
 
-    glee_hook = {
-        "matcher": "startup|resume|compact",
-        "hooks": [
-            {
-                "type": "command",
-                "command": "glee memory overview 2>/dev/null || true",
-            }
-        ],
-    }
+    # Helper to migrate old hook command
+    def migrate_hook_command(hook_name: str, old_cmd: str, new_cmd: str) -> bool:
+        hooks_list = hooks_dict.get(hook_name, [])
+        migrated = False
+        for hook_config in hooks_list:
+            inner_hooks = cast(list[dict[str, Any]], hook_config.get("hooks", []))
+            for h in inner_hooks:
+                cmd = str(h.get("command", ""))
+                if old_cmd in cmd:
+                    h["command"] = cmd.replace(old_cmd, new_cmd)
+                    migrated = True
+        return migrated
 
-    session_hooks.append(glee_hook)
-    settings["hooks"]["SessionStart"] = session_hooks
+    # Migrate old SessionStart hooks to UserPromptSubmit
+    if "SessionStart" in hooks_dict:
+        old_hooks = hooks_dict.pop("SessionStart")
+        if "UserPromptSubmit" not in hooks_dict:
+            hooks_dict["UserPromptSubmit"] = []
+        hooks_dict["UserPromptSubmit"].extend(old_hooks)
+        updated = True
 
-    with open(settings_path, "w") as f:
-        json.dump(settings, f, indent=2)
+    # Migrate old "glee memory overview" to "glee warmup"
+    if migrate_hook_command("UserPromptSubmit", "glee memory overview", "glee warmup"):
+        updated = True
 
-    return True
+    # Register warmup hook (UserPromptSubmit)
+    if not has_hook_command("UserPromptSubmit", "glee warmup"):
+        warmup_hook: dict[str, Any] = {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "glee warmup 2>/dev/null || true",
+                }
+            ],
+        }
+        if "UserPromptSubmit" not in hooks_dict:
+            hooks_dict["UserPromptSubmit"] = []
+        hooks_dict["UserPromptSubmit"].append(warmup_hook)
+        updated = True
+
+    # Register session summary hook (Stop)
+    if not has_hook_command("Stop", "glee summarize-session"):
+        stop_hook: dict[str, Any] = {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "glee summarize-session 2>/dev/null || true",
+                }
+            ],
+        }
+        if "Stop" not in hooks_dict:
+            hooks_dict["Stop"] = []
+        hooks_dict["Stop"].append(stop_hook)
+        updated = True
+
+    if updated:
+        with open(settings_path, "w") as f:
+            json.dump(settings, f, indent=2)
+
+    return updated
 
 
 def init_project(project_path: str, project_id: str | None = None, agent: str | None = None) -> dict[str, Any]:
@@ -395,7 +450,8 @@ def validate_autonomy_config(autonomy_data: dict[str, Any]) -> list[str]:
     if not isinstance(require_approval_for, list):
         errors.append("require_approval_for must be a list")
     else:
-        for raf_item in require_approval_for:
+        raf_list = cast(list[Any], require_approval_for)
+        for raf_item in raf_list:
             if not isinstance(raf_item, str):
                 errors.append("require_approval_for must be a list of strings")
                 break

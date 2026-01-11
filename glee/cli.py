@@ -2,8 +2,11 @@
 
 import json
 import os
+import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+from glee.memory.capture import capture_memory
 
 import typer
 from loguru import logger
@@ -239,7 +242,7 @@ def config_set(
             console.print(f"[yellow]Warning: {value} CLI is not installed[/yellow]")
 
         try:
-            reviewers = set_reviewer(command=value, tier=tier)
+            set_reviewer(command=value, tier=tier)
             console.print(f"[green]Set {key} = {value}[/green]")
         except ValueError as e:
             console.print(f"[red]Error: {e}[/red]")
@@ -491,33 +494,57 @@ def review(
 
 
 @app.command()
-def test_agent(
-    agent: str = typer.Argument(..., help="Agent name (claude, codex, gemini)"),
-    prompt: str = typer.Option("Say hello", "--prompt", "-p", help="Test prompt"),
+def warmup():
+    """Output session warmup context (memory, sessions, git)."""
+    from glee.config import get_project_config
+    from glee.warmup import build_warmup_text
+
+    try:
+        if not get_project_config():
+            return
+        output = build_warmup_text(os.getcwd())
+        if not output:
+            return
+        console.print(output, markup=False, highlight=False)
+    except Exception as e:
+        console.print(f"Error: {e}", markup=False)
+        raise typer.Exit(1)
+
+
+@app.command("summarize-session")
+def summarize_session(
+    summary: str | None = typer.Option(None, "--summary", "-s", help="Short session summary"),
+    background: bool = typer.Option(False, "--background", help="Suppress output"),
 ):
-    """Test an agent with a simple prompt."""
-    from glee.agents import registry
+    """Summarize the session and store it in memory."""
+    from glee.config import get_project_config
+    from glee.session_summary import summarize_session as run_summary
 
-    if agent not in registry.agents:
-        console.print(f"[red]Unknown agent: {agent}[/red]")
-        console.print(f"Available: {', '.join(registry.agents.keys())}")
+    if not get_project_config():
+        return
+
+    try:
+        result = run_summary(os.getcwd(), summary=summary)
+        if background:
+            return
+
+        added = result.get("added", {})
+        cleared = result.get("cleared", {})
+        if cleared:
+            console.print("[bold]Cleared:[/bold]")
+            for cat, count in sorted(cleared.items()):
+                console.print(f"  {cat}: {count}")
+        if added:
+            console.print("[bold]Added:[/bold]")
+            for cat, count in sorted(added.items()):
+                console.print(f"  {cat}: {count}")
+        if not added and not cleared:
+            console.print("[yellow]No entries captured[/yellow]")
+    except Exception as e:
+        if background:
+            return
+        console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
-
-    agent_instance = registry.agents[agent]
-    if not agent_instance.is_available():
-        console.print(f"[red]Agent {agent} is not available[/red]")
-        raise typer.Exit(1)
-
-    console.print(f"[green]Testing {agent}...[/green]")
-    console.print(f"Prompt: {prompt}")
-    console.print()
-
-    result = agent_instance.run(prompt)
-    console.print("[bold]Response:[/bold]")
-    console.print(result.output)
-
-    if result.error:
-        console.print(f"[red]Error: {result.error}[/red]")
 
 
 # Memory subcommands
@@ -525,19 +552,184 @@ memory_app = typer.Typer(help="Memory management commands")
 app.add_typer(memory_app, name="memory")
 
 
-@memory_app.command("add")
-def memory_add(
-    category: str = typer.Argument(..., help="Category (e.g., architecture, convention, review, decision)"),
-    content: str = typer.Argument(..., help="Content to remember"),
+@memory_app.command("ops")
+def memory_ops(
+    action: str = typer.Option(
+        ...,
+        "--action",
+        "-a",
+        help="Action: add, list, delete, delete_category, delete_all",
+    ),
+    category: str | None = typer.Option(None, "--category", "-c", help="Memory category"),
+    content: str | None = typer.Option(None, "--content", help="Content to remember (add)"),
+    memory_id: str | None = typer.Option(None, "--memory-id", "--id", help="Memory ID (delete)"),
+    metadata: str | None = typer.Option(None, "--metadata", help="JSON metadata (add)"),
+    limit: int = typer.Option(50, "--limit", "-l", help="Max results (list)"),
+    confirm: bool = typer.Option(False, "--confirm", help="Confirm destructive actions"),
 ):
-    """Add a memory entry."""
+    """Perform memory operations (add, list, delete, delete_category, delete_all)."""
     from glee.memory import Memory
 
+    action_key = action.strip().lower().replace("-", "_")
+    allowed = {"add", "list", "delete", "delete_category", "delete_all"}
+    if action_key not in allowed:
+        console.print(f"[red]Invalid action '{action}'. Use one of: {', '.join(sorted(allowed))}.[/red]")
+        raise typer.Exit(1)
+
+    memory = None
     try:
         memory = Memory(os.getcwd())
-        memory_id = memory.add(category=category, content=content)
-        memory.close()
-        console.print(f"[green]Added memory {memory_id} to {category}[/green]")
+
+        if action_key == "add":
+            if not category or not content:
+                console.print("[red]Both --category and --content are required for add.[/red]")
+                raise typer.Exit(1)
+
+            metadata_obj: dict[str, Any] | None = None
+            if metadata is not None:
+                try:
+                    metadata_obj = json.loads(metadata)
+                except json.JSONDecodeError as e:
+                    console.print(f"[red]Invalid JSON for --metadata: {e}[/red]")
+                    raise typer.Exit(1)
+                if not isinstance(metadata_obj, dict):
+                    console.print("[red]--metadata must be a JSON object.[/red]")
+                    raise typer.Exit(1)
+
+            memory_id_value = memory.add(category=category, content=content, metadata=metadata_obj)
+            console.print(f"[green]Added memory {memory_id_value} to {category}[/green]")
+            return
+
+        if action_key == "list":
+            if limit <= 0:
+                limit = 50
+
+            if category:
+                results = memory.get_by_category(category)[:limit]
+                if not results:
+                    console.print(f"[yellow]No memories in category '{category}'[/yellow]")
+                    return
+
+                title = category.replace("-", " ").replace("_", " ").title()
+                console.print(f"[bold]{title} ({len(results)} entries):[/bold]")
+                for r in results:
+                    console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('created_at')})")
+                    console.print(f"  {r.get('content')}")
+                return
+
+            categories = memory.get_categories()
+            if not categories:
+                console.print("[yellow]No memories found[/yellow]")
+                return
+
+            console.print("[bold]All Memories:[/bold]\n")
+            for cat in categories:
+                results = memory.get_by_category(cat)[:limit]
+                title = cat.replace("-", " ").replace("_", " ").title()
+                console.print(f"[bold cyan]{title}[/bold cyan] ({len(results)} entries)")
+                for r in results:
+                    console.print(f"  [{r.get('id')}] {r.get('content')}")
+                console.print()
+            return
+
+        if action_key == "delete":
+            if not memory_id:
+                console.print("[red]--memory-id is required for delete.[/red]")
+                raise typer.Exit(1)
+
+            deleted = memory.delete(memory_id)
+            if deleted:
+                console.print(f"[green]Deleted memory {memory_id}[/green]")
+            else:
+                console.print(f"[yellow]Memory {memory_id} not found[/yellow]")
+            return
+
+        if action_key == "delete_category":
+            if not category:
+                console.print("[red]--category is required for delete_category.[/red]")
+                raise typer.Exit(1)
+            if not confirm:
+                if not typer.confirm(f"Delete all memories in '{category}'?"):
+                    console.print("[dim]Cancelled[/dim]")
+                    return
+
+            count = memory.clear(category)
+            console.print(f"[green]Deleted {count} memories from '{category}'[/green]")
+            return
+
+        if action_key == "delete_all":
+            if not confirm:
+                if not typer.confirm("Delete ALL memories? This cannot be undone."):
+                    console.print("[dim]Cancelled[/dim]")
+                    return
+
+            count = memory.clear(None)
+            console.print(f"[green]Deleted all {count} memories[/green]")
+            return
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+    finally:
+        if memory is not None:
+            memory.close()
+
+
+@memory_app.command("capture")
+def memory_capture(
+    payload: str | None = typer.Option(
+        None,
+        "--json",
+        "-j",
+        help="JSON payload for structured capture (goal, constraints, decisions, open_loops, recent_changes).",
+    ),
+    file: Path | None = typer.Option(
+        None,
+        "--file",
+        "-f",
+        help="Path to a JSON file to capture.",
+    ),
+):
+    """Capture structured memory from JSON payload."""
+    if payload is None and file is None:
+        console.print("[red]Provide --json or --file[/red]")
+        raise typer.Exit(1)
+
+    if payload is None and file is not None:
+        try:
+            payload = file.read_text()
+        except OSError as e:
+            console.print(f"[red]Error reading file: {e}[/red]")
+            raise typer.Exit(1)
+
+    if payload == "-":
+        payload = sys.stdin.read()
+
+    try:
+        data = json.loads(payload or "")
+    except json.JSONDecodeError as e:
+        console.print(f"[red]Invalid JSON: {e}[/red]")
+        raise typer.Exit(1)
+
+    if not isinstance(data, dict):
+        console.print("[red]Payload must be a JSON object[/red]")
+        raise typer.Exit(1)
+
+    try:
+        result = capture_memory(os.getcwd(), cast(dict[str, Any], data), source="cli")
+        added = result.get("added", {})
+        cleared = result.get("cleared", {})
+        if cleared:
+            console.print("[bold]Cleared:[/bold]")
+            for cat, count in sorted(cleared.items()):
+                console.print(f"  {cat}: {count}")
+        if added:
+            console.print("[bold]Added:[/bold]")
+            for cat, count in sorted(added.items()):
+                console.print(f"  {cat}: {count}")
+        if not added and not cleared:
+            console.print("[yellow]No entries captured[/yellow]")
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
@@ -565,118 +757,6 @@ def memory_search(
         for r in results:
             console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('category')})")
             console.print(f"  {r.get('content')}")
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
-
-
-@memory_app.command("list")
-def memory_list(
-    category: str | None = typer.Argument(None, help="Optional category filter"),
-):
-    """List all memories, optionally filtered by category."""
-    from glee.memory import Memory
-
-    try:
-        memory = Memory(os.getcwd())
-
-        if category:
-            results = memory.get_by_category(category)
-            memory.close()
-
-            if not results:
-                console.print(f"[yellow]No memories in category '{category}'[/yellow]")
-                return
-
-            title = category.replace("-", " ").replace("_", " ").title()
-            console.print(f"[bold]{title} ({len(results)} entries):[/bold]")
-            for r in results:
-                console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('created_at')})")
-                console.print(f"  {r.get('content')}")
-        else:
-            categories = memory.get_categories()
-            memory.close()
-
-            if not categories:
-                console.print("[yellow]No memories found[/yellow]")
-                return
-
-            console.print("[bold]All Memories:[/bold]\n")
-            for cat in categories:
-                m = Memory(os.getcwd())
-                results = m.get_by_category(cat)
-                m.close()
-                title = cat.replace("-", " ").replace("_", " ").title()
-                console.print(f"[bold cyan]{title}[/bold cyan] ({len(results)} entries)")
-                for r in results:
-                    console.print(f"  [{r.get('id')}] {r.get('content')}")
-                console.print()
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
-
-
-@memory_app.command("delete")
-def memory_delete(
-    memory_id: str = typer.Argument(..., help="Memory ID to delete"),
-):
-    """Delete a specific memory entry."""
-    from glee.memory import Memory
-
-    try:
-        memory = Memory(os.getcwd())
-        deleted = memory.delete(memory_id)
-        memory.close()
-
-        if deleted:
-            console.print(f"[green]Deleted memory {memory_id}[/green]")
-        else:
-            console.print(f"[yellow]Memory {memory_id} not found[/yellow]")
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
-
-
-@memory_app.command("delete-category")
-def memory_delete_category(
-    category: str = typer.Argument(..., help="Category to delete all memories from"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
-):
-    """Delete all memories in a specific category."""
-    from glee.memory import Memory
-
-    if not force:
-        if not typer.confirm(f"Delete all memories in '{category}'?"):
-            console.print("[dim]Cancelled[/dim]")
-            return
-
-    try:
-        memory = Memory(os.getcwd())
-        count = memory.clear(category)
-        memory.close()
-        console.print(f"[green]Deleted {count} memories from '{category}'[/green]")
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
-
-
-@memory_app.command("delete-all")
-def memory_delete_all(
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
-):
-    """Delete ALL memories. Use with extreme caution."""
-    from glee.memory import Memory
-
-    if not force:
-        if not typer.confirm("Delete ALL memories? This cannot be undone."):
-            console.print("[dim]Cancelled[/dim]")
-            return
-
-    try:
-        memory = Memory(os.getcwd())
-        count = memory.clear(None)
-        memory.close()
-        console.print(f"[green]Deleted all {count} memories[/green]")
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
