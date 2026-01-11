@@ -534,10 +534,6 @@ def summarize_session(
         console.print(f"[red]Agent '{from_source}' is not supported. Only 'claude' is currently supported for session summarization.[/red]")
         return
 
-    if not get_project_config():
-        log("No project config found")
-        return
-
     try:
         # Get the agent
         agent = registry.get(from_source)
@@ -615,6 +611,27 @@ def summarize_session(
 
         log(f"Conversation has {len(conversation['messages'])} messages")
 
+        def find_project_root(start: Path) -> Path | None:
+            for candidate in [start] + list(start.parents):
+                if (candidate / ".glee" / "config.yml").exists():
+                    return candidate
+            return None
+
+        project_hint = conversation.get("project_path") or os.getcwd()
+        project_path = Path(project_hint).expanduser()
+        if project_path.is_file():
+            project_path = project_path.parent
+        project_root = find_project_root(project_path.resolve())
+        if not project_root or not get_project_config(str(project_root)):
+            log(f"No project config found for {project_path}")
+            console.print("[red]No project config found. Run 'glee init' in the project.[/red]")
+            return
+
+        if log_file is None or (project_root / ".glee" / "stream_logs") != log_file.parent:
+            log_dir = project_root / ".glee" / "stream_logs"
+            log_dir.mkdir(exist_ok=True)
+            log_file = log_dir / f"summarize-session-{datetime.now().strftime('%Y%m%d')}.log"
+
         # Format conversation for the agent
         conversation_text = format_conversation_for_summary(conversation, max_chars=8000)
 
@@ -673,7 +690,7 @@ If a field doesn't apply, use an empty string or empty array. Be concise."""
             # Save to memory
             log(f"Saving to DB with session_id={effective_session_id}")
             capture_result = capture_memory(
-                os.getcwd(),
+                str(project_root),
                 structured,
                 source="summarize_session",
                 session_id=effective_session_id,

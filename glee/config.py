@@ -140,6 +140,8 @@ def register_session_hook(project_path: str) -> bool:
     - SessionEnd: Capture session summary at session end
     """
     import json
+    import shlex
+    import shutil
 
     project_dir = Path(project_path)
     claude_dir = project_dir / ".claude"
@@ -173,6 +175,9 @@ def register_session_hook(project_path: str) -> bool:
                     return True
         return False
 
+    glee_cmd = shutil.which("glee") or "glee"
+    glee_cmd_quoted = shlex.quote(glee_cmd)
+
     # Register warmup hook (SessionStart)
     if not has_hook_command("SessionStart", "glee warmup-session"):
         warmup_hook: dict[str, Any] = {
@@ -180,7 +185,7 @@ def register_session_hook(project_path: str) -> bool:
             "hooks": [
                 {
                     "type": "command",
-                    "command": "glee warmup-session 2>/dev/null || true",
+                    "command": f"{glee_cmd_quoted} warmup-session 2>/dev/null || true",
                 }
             ],
         }
@@ -190,15 +195,18 @@ def register_session_hook(project_path: str) -> bool:
         updated = True
 
     # Register session summary hook (SessionEnd)
-    # Note: Read stdin first (blocking), then background the processing
-    # Use here-string (<<<) for reliable data passing with special characters
+    # Note: Capture stdin to a temp file, then background the processing
     if not has_hook_command("SessionEnd", "glee summarize-session"):
         session_end_hook: dict[str, Any] = {
             "matcher": "",
             "hooks": [
                 {
                     "type": "command",
-                    "command": "input=$(cat) && (glee summarize-session --from=claude <<< \"$input\" 2>/dev/null || true) &",
+                    "command": (
+                        "tmp=$(mktemp) && cat > \"$tmp\" && (nohup "
+                        f"{glee_cmd_quoted} summarize-session --from=claude < \"$tmp\" "
+                        ">/dev/null 2>&1; rm -f \"$tmp\") >/dev/null 2>&1 &"
+                    ),
                 }
             ],
         }
@@ -208,14 +216,18 @@ def register_session_hook(project_path: str) -> bool:
         updated = True
 
     # Register pre-compact hook (PreCompact) - capture context before compaction
-    # Note: Read stdin first (blocking), then background the processing
+    # Note: Capture stdin to a temp file, then background the processing
     if not has_hook_command("PreCompact", "glee summarize-session"):
         pre_compact_hook: dict[str, Any] = {
             "matcher": "",
             "hooks": [
                 {
                     "type": "command",
-                    "command": "input=$(cat) && (glee summarize-session --from=claude <<< \"$input\" 2>/dev/null || true) &",
+                    "command": (
+                        "tmp=$(mktemp) && cat > \"$tmp\" && (nohup "
+                        f"{glee_cmd_quoted} summarize-session --from=claude < \"$tmp\" "
+                        ">/dev/null 2>&1; rm -f \"$tmp\") >/dev/null 2>&1 &"
+                    ),
                 }
             ],
         }
