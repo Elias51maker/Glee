@@ -132,6 +132,17 @@ When you run `glee init claude`, Glee registers hooks in `.claude/settings.local
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "glee summarize-session --from=claude 2>/dev/null || true"
+          }
+        ]
+      }
     ]
   }
 }
@@ -139,7 +150,10 @@ When you run `glee init claude`, Glee registers hooks in `.claude/settings.local
 
 This:
 - **SessionStart**: Injects warmup context (goal, constraints, decisions, open loops, changes, memory)
-- **SessionEnd**: Uses the agent (Claude) to generate a structured summary (goal, decisions, open_loops, summary) and stores it in memory. Logs to `.glee/stream_logs/` for debugging.
+- **SessionEnd**: Uses the agent (Claude) to generate a structured summary (goal, decisions, open_loops, summary) and stores it in memory
+- **PreCompact**: Captures session context before auto-compact or `/compact` to prevent context loss
+
+All summarization is logged to `.glee/stream_logs/` for debugging.
 
 ## Usage Patterns
 

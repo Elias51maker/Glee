@@ -25,6 +25,7 @@ A comprehensive comparison of hook systems across AI coding agents. This informs
 |-------|------|-----------|----------|
 | `SessionStart` | Session starts (startup/resume/clear) | No | **Load context, warmup** |
 | `SessionEnd` | Session ends (explicit or timeout) | No | **Session summarization** |
+| `PreCompact` | Before context compaction (auto or /compact) | No | **Capture context before loss** |
 | `PreToolUse` | Before tool execution | Yes | Validate, block dangerous ops |
 | `PostToolUse` | After tool completion | No | Format, lint, log |
 | `Notification` | On notifications | No | Custom alerts |
@@ -59,6 +60,17 @@ A comprehensive comparison of hook systems across AI coding agents. This informs
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "glee summarize-session --from=claude 2>/dev/null || true"
+          }
+        ]
+      }
     ]
   }
 }
@@ -75,6 +87,7 @@ A comprehensive comparison of hook systems across AI coding agents. This informs
 
 - `SessionStart`: Inject warmup context when session starts
 - `SessionEnd`: Trigger session summarization (receives session_id via stdin JSON)
+- `PreCompact`: Capture context before auto-compact or `/compact` (prevents context loss)
 - stdout from hooks is injected into context (perfect for warmup)
 
 ---

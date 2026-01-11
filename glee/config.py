@@ -205,6 +205,22 @@ def register_session_hook(project_path: str) -> bool:
         hooks_dict["SessionEnd"].append(session_end_hook)
         updated = True
 
+    # Register pre-compact hook (PreCompact) - capture context before compaction
+    if not has_hook_command("PreCompact", "glee summarize-session"):
+        pre_compact_hook: dict[str, Any] = {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "glee summarize-session --from=claude 2>/dev/null || true",
+                }
+            ],
+        }
+        if "PreCompact" not in hooks_dict:
+            hooks_dict["PreCompact"] = []
+        hooks_dict["PreCompact"].append(pre_compact_hook)
+        updated = True
+
     if updated:
         with open(settings_path, "w") as f:
             json.dump(settings, f, indent=2)

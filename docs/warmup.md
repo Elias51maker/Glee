@@ -151,6 +151,10 @@ When you run `glee init claude`, Glee registers hooks in `.claude/settings.local
     "SessionEnd": [{
       "matcher": "",
       "hooks": [{ "type": "command", "command": "glee summarize-session --from=claude 2>/dev/null || true" }]
+    }],
+    "PreCompact": [{
+      "matcher": "",
+      "hooks": [{ "type": "command", "command": "glee summarize-session --from=claude 2>/dev/null || true" }]
     }]
   }
 }
