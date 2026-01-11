@@ -446,7 +446,7 @@ Tool directories can include supporting materials next to the manifest:
 │   ├── repo_stats/
 │   ├── slack_notify/
 │   └── ...
-└── sessions/
+└── agent_sessions/
 ```
 
 ## Schema and Linting

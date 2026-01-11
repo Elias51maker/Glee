@@ -137,7 +137,7 @@ project/
 │   ├── stream_logs/    # Agent stdout/stderr logs
 │   ├── agents/         # Subagent definitions (V2)
 │   ├── workflows/      # Workflow definitions (V2)
-│   └── sessions/       # Session cache (V2)
+│   └── agent_sessions/     # Agent task sessions (V2)
 └── .mcp.json           # MCP server registration (for Claude Code)
 ```
 

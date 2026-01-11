@@ -11,7 +11,7 @@ from mcp.server import Server
 from glee.helpers import extract_capture_block, git_head, git_status_changes
 
 if TYPE_CHECKING:
-    from glee.session import Session
+    from glee.agent_session import Session
 
 logger = logging.getLogger(__name__)
 
@@ -863,7 +863,7 @@ async def _handle_task(arguments: dict[str, Any]) -> list[TextContent]:
     from pathlib import Path
 
     # Import session module functions directly
-    import glee.session as session_mod
+    import glee.agent_session as session_mod
     from glee.agents import registry
     from glee.config import get_project_config
 
@@ -1088,7 +1088,7 @@ def _build_task_prompt(
     project_path: Path, session: Session, new_prompt: str
 ) -> str:
     """Build the full prompt with context injection."""
-    import glee.session as session_mod
+    import glee.agent_session as session_mod
     from glee.memory import Memory
 
     lines: list[str] = []

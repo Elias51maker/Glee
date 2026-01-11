@@ -6,7 +6,7 @@ from pathlib import Path
 
 from glee.helpers import git_diff_since, git_status_changes, parse_metadata, parse_time
 from glee.memory import Memory
-from glee.session import load_all_sessions
+from glee.agent_session import load_all_sessions
 
 
 def build_warmup_text(project_path: str | Path) -> str | None:

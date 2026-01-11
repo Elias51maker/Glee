@@ -78,7 +78,7 @@ A quick confidence check. Top 3 high-risk issues only. Targeted for vibe coding.
 ## Data Sources (MVP, local only)
 
 - `.glee/memory.*` (existing memory store)
-- `.glee/sessions/*.json` (existing task sessions)
+- `.glee/agent_sessions/*.json` (agent task sessions)
 - `git status` / `git diff --name-only`
 - `README.md`, `CLAUDE.md`, `AGENTS.md`
 

@@ -184,7 +184,7 @@ Glee runs locally, connects via MCP protocol, and invokes CLI agents via subproc
 │   ├── memory.lance/       # LanceDB - vector search
 │   ├── memory.duckdb       # DuckDB - SQL queries
 │   ├── stream_logs/        # Agent stdout/stderr
-│   └── sessions/           # Session cache
+│   └── agent_sessions/     # Agent task sessions
 └── .mcp.json               # MCP server registration
 ```
 

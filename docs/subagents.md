@@ -298,7 +298,7 @@ CLI agents (codex, claude, gemini) are stateless - each subprocess is fresh. Gle
 ### Session Storage
 
 ```
-.glee/sessions/
+.glee/agent_sessions/
 └── task-a1b2c3d4.json
 ```
 
@@ -327,7 +327,7 @@ CLI agents (codex, claude, gemini) are stateless - each subprocess is fresh. Gle
 
 When `session_id` is provided:
 
-1. Load session from `.glee/sessions/{session_id}.json`
+1. Load session from `.glee/agent_sessions/{session_id}.json`
 2. Build context from previous messages
 3. Inject into new prompt:
 
@@ -492,7 +492,7 @@ security:
     mode: restricted        # restricted | inherit
     fs:
       read: ["."]              # Only project directory
-      write: [".glee/sessions/", ".glee/stream_logs/"]
+      write: [".glee/agent_sessions/", ".glee/stream_logs/"]
     network: false             # No network access by default
     env:
       allow: ["PATH", "HOME", "LANG"]  # Explicit allowlist; no secrets by default

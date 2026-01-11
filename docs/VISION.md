@@ -138,7 +138,7 @@ Glee remembers everything:
 ├── memory.lance/           # LanceDB - vector search
 ├── memory.duckdb           # DuckDB - SQL queries
 ├── stream_logs/            # Agent stdout/stderr logs
-└── sessions/               # Session cache
+└── agent_sessions/         # Agent task sessions
 ```
 
 **Tech stack**:

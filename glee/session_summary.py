@@ -13,7 +13,7 @@ from glee.helpers import (
 )
 from glee.memory.capture import capture_memory
 from glee.memory.store import Memory
-from glee.session import get_latest_session
+from glee.agent_session import get_latest_session
 
 
 def summarize_session(

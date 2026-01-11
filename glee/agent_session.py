@@ -33,8 +33,8 @@ class Session(TypedDict):
 
 
 def get_sessions_dir(project_path: str | Path) -> Path:
-    """Get the sessions directory for a project."""
-    sessions_dir = Path(project_path) / ".glee" / "sessions"
+    """Get the subagent sessions directory for a project."""
+    sessions_dir = Path(project_path) / ".glee" / "agent_sessions"
     sessions_dir.mkdir(parents=True, exist_ok=True)
     return sessions_dir
 
@@ -97,7 +97,7 @@ def load_session(project_path: str | Path, session_id: str) -> Session | None:
 def load_all_sessions(project_path: str | Path) -> list[Session]:
     """Load all sessions, sorted by updated_at (newest first)."""
     project_path = Path(project_path)
-    sessions_dir = project_path / ".glee" / "sessions"
+    sessions_dir = project_path / ".glee" / "agent_sessions"
     if not sessions_dir.exists():
         return []
 

@@ -462,7 +462,7 @@ See [subagents.md](subagents.md#prompt-injection-mitigation) for details.
 CLI agents (codex, claude, gemini) are stateless. Glee stores conversation history:
 
 ```
-.glee/sessions/
+.glee/agent_sessions/
 └── task-a1b2c3d4.json
 ```
 
