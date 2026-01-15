@@ -101,15 +101,18 @@ Glee needs an AI to power its reasoning. Configure one:
 
 ```bash
 # OAuth flows (uses your existing subscription)
-glee oauth codex              # Codex API (PKCE flow)
-glee oauth copilot            # GitHub Copilot API (device flow)
+glee oauth codex               # Codex API (PKCE flow)
+glee oauth copilot             # GitHub Copilot API (device flow)
 
 # API keys
-glee auth claude <key>        # Claude API
-glee auth gemini <key>        # Gemini API
+glee auth set claude <key>     # Claude API
+glee auth set gemini <key>     # Gemini API
 
 # Check status
 glee auth status
+
+# Remove credentials
+glee auth logout <provider>
 ```
 
 **Priority order:** Codex API → Copilot API → Claude API → Gemini API → CLI fallback
@@ -118,11 +121,12 @@ glee auth status
 
 ```bash
 # Setup
-glee init <agent>             # Initialize project
-glee oauth codex              # OAuth to Codex
-glee oauth copilot            # OAuth to Copilot
-glee auth <provider> <key>    # Set API key
-glee auth status              # Show configured providers
+glee init <agent>              # Initialize project
+glee oauth codex               # OAuth to Codex
+glee oauth copilot             # OAuth to Copilot
+glee auth set <provider> <key> # Set API key
+glee auth status               # Show configured providers
+glee auth logout <provider>    # Remove credentials
 
 # Jobs
 glee status                   # Show project status
@@ -188,17 +192,19 @@ reviewers:
   secondary: gemini
 ```
 
-```yaml
-# ~/.glee/auth.yml
-codex:
-  method: oauth
-  access_token: "..."
-  refresh_token: "..."
-  expires_at: 1736956800
+```
+# ~/.glee/auth/
+codex-oauth.yml      # OAuth credentials for Codex
+claude-api-key.yml   # API key for Claude
 
-claude:
-  method: api_key
-  api_key: "sk-ant-..."
+# codex-oauth.yml
+access_token: "..."
+refresh_token: "..."
+expires_at: 1736956800
+account_id: "org-xxx"
+
+# claude-api-key.yml
+api_key: "sk-ant-..."
 ```
 
 ## Documentation

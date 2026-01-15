@@ -1608,5 +1608,181 @@ def mcp():
     asyncio.run(run_server())
 
 
+# OAuth subcommands
+oauth_app = typer.Typer(help="OAuth authentication")
+app.add_typer(oauth_app, name="oauth")
+
+
+@oauth_app.command("codex")
+def oauth_codex():
+    """Authenticate with Codex API using OAuth.
+
+    Opens a browser for authentication and stores credentials in ~/.glee/auth/codex-oauth.yml.
+
+    Examples:
+        glee oauth codex
+    """
+    import asyncio
+    import time
+
+    from glee.auth.codex import authenticate, extract_account_id
+    from glee.auth.storage import OAuthCredentials, save_credentials
+
+    console.print(padded(Text.assemble(
+        ("🔐 ", "bold"),
+        ("Codex OAuth", f"bold {Theme.PRIMARY}"),
+    ), bottom=0))
+
+    try:
+        tokens, error = asyncio.run(authenticate())
+
+        if error:
+            console.print(padded(Panel(
+                f"[{Theme.ERROR}]{error}[/{Theme.ERROR}]",
+                title=f"[{Theme.ERROR}]Authentication Failed[/{Theme.ERROR}]",
+                border_style=Theme.ERROR
+            )))
+            raise typer.Exit(1)
+
+        if not tokens:
+            console.print(padded(f"[{Theme.ERROR}]No tokens received[/{Theme.ERROR}]"))
+            raise typer.Exit(1)
+
+        # Extract account ID from JWT
+        account_id = extract_account_id(tokens.access_token)
+
+        # Calculate expiry timestamp
+        expires_at = int(time.time()) + tokens.expires_in
+
+        # Save credentials
+        credentials = OAuthCredentials(
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            expires_at=expires_at,
+            account_id=account_id,
+        )
+        save_credentials("codex", credentials)
+
+        # Show success
+        success_tree = Tree(f"[{Theme.SUCCESS}]✓ Authentication successful[/{Theme.SUCCESS}]")
+        success_tree.add(f"[{Theme.MUTED}]Saved to:[/{Theme.MUTED}] ~/.glee/auth/codex-oauth.yml")
+        if account_id:
+            success_tree.add(f"[{Theme.MUTED}]Account:[/{Theme.MUTED}] [{Theme.PRIMARY}]{account_id}[/{Theme.PRIMARY}]")
+        success_tree.add(f"[{Theme.MUTED}]Expires:[/{Theme.MUTED}] {tokens.expires_in // 3600} hours")
+
+        console.print(padded(success_tree))
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(padded(f"[{Theme.ERROR}]Error: {e}[/{Theme.ERROR}]"))
+        raise typer.Exit(1)
+
+
+# Auth subcommands
+auth_app = typer.Typer(help="API key authentication")
+app.add_typer(auth_app, name="auth")
+
+
+@auth_app.command("status")
+def auth_status():
+    """Show authentication status for all providers.
+
+    Examples:
+        glee auth status
+    """
+    from glee.auth.storage import PROVIDERS, get_credentials, OAuthCredentials, APIKeyCredentials
+
+    console.print(padded(Text.assemble(
+        ("🔐 ", "bold"),
+        ("Auth Status", f"bold {Theme.PRIMARY}"),
+    ), bottom=0))
+
+    auth_tree = Tree(f"[{Theme.HEADER}]Providers[/{Theme.HEADER}]")
+
+    for provider in PROVIDERS:
+        creds = get_credentials(provider)
+        if creds is None:
+            auth_tree.add(f"[{Theme.MUTED}]○[/{Theme.MUTED}] {provider} [{Theme.MUTED}]not configured[/{Theme.MUTED}]")
+        elif isinstance(creds, OAuthCredentials):
+            if creds.is_expired():
+                status = f"[{Theme.WARNING}]expired[/{Theme.WARNING}]"
+            else:
+                status = f"[{Theme.SUCCESS}]active[/{Theme.SUCCESS}]"
+            branch = auth_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {provider} [{Theme.ACCENT}]oauth[/{Theme.ACCENT}] {status}")
+            if creds.account_id:
+                branch.add(f"[{Theme.MUTED}]account:[/{Theme.MUTED}] {creds.account_id}")
+        elif isinstance(creds, APIKeyCredentials):
+            masked = creds.api_key[:8] + "..." if len(creds.api_key) > 8 else "***"
+            auth_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {provider} [{Theme.ACCENT}]api_key[/{Theme.ACCENT}] [{Theme.MUTED}]{masked}[/{Theme.MUTED}]")
+
+    console.print(padded(auth_tree))
+
+
+@auth_app.command("set")
+def auth_set(
+    provider: str = typer.Argument(..., help="Provider name (claude, gemini)"),
+    api_key: str = typer.Argument(..., help="API key"),
+):
+    """Set API key for a provider.
+
+    Examples:
+        glee auth set claude sk-ant-xxx
+        glee auth set gemini AIzaSyxxx
+    """
+    from glee.auth.storage import PROVIDERS, APIKeyCredentials, save_credentials
+
+    if provider not in PROVIDERS:
+        console.print(padded(Panel(
+            f"Unknown provider: [{Theme.ERROR}]{provider}[/{Theme.ERROR}]\n\n"
+            f"Valid providers: [{Theme.PRIMARY}]{', '.join(PROVIDERS)}[/{Theme.PRIMARY}]",
+            title=f"[{Theme.ERROR}]Error[/{Theme.ERROR}]",
+            border_style=Theme.ERROR
+        )))
+        raise typer.Exit(1)
+
+    if provider in ("codex", "copilot"):
+        console.print(padded(f"[{Theme.WARNING}]Use 'glee oauth {provider}' for OAuth authentication[/{Theme.WARNING}]"))
+        raise typer.Exit(1)
+
+    credentials = APIKeyCredentials(api_key=api_key)
+    save_credentials(provider, credentials)
+
+    console.print(padded(Text.assemble(
+        (f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] ", ""),
+        (f"Saved {provider} API key to ", ""),
+        ("~/.glee/auth/", Theme.MUTED),
+        (f"{provider}-api-key.yml", Theme.PRIMARY),
+    )))
+
+
+@auth_app.command("logout")
+def auth_logout(
+    provider: str = typer.Argument(..., help="Provider to logout from"),
+):
+    """Remove credentials for a provider.
+
+    Examples:
+        glee auth logout codex
+        glee auth logout claude
+    """
+    from glee.auth.storage import PROVIDERS, delete_credentials
+
+    if provider not in PROVIDERS:
+        console.print(padded(Panel(
+            f"Unknown provider: [{Theme.ERROR}]{provider}[/{Theme.ERROR}]\n\n"
+            f"Valid providers: [{Theme.PRIMARY}]{', '.join(PROVIDERS)}[/{Theme.PRIMARY}]",
+            title=f"[{Theme.ERROR}]Error[/{Theme.ERROR}]",
+            border_style=Theme.ERROR
+        )))
+        raise typer.Exit(1)
+
+    deleted = delete_credentials(provider)
+    if deleted:
+        console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Removed {provider} credentials"))
+    else:
+        console.print(padded(f"[{Theme.WARNING}]No credentials found for {provider}[/{Theme.WARNING}]"))
+
+
 if __name__ == "__main__":
     app()

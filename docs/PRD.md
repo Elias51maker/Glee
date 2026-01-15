@@ -173,26 +173,32 @@ Glee needs an AI to power its reasoning. Priority order:
 
 ### Auth Storage
 
-```yaml
-# ~/.glee/auth.yml
-codex:
-  method: oauth
-  access_token: "..."
-  refresh_token: "..."
-  expires_at: 1736956800
+```
+# ~/.glee/auth/
+codex-oauth.yml      # OAuth credentials for Codex
+copilot-oauth.yml    # OAuth credentials for GitHub Copilot
+claude-api-key.yml   # API key for Claude
+gemini-api-key.yml   # API key for Gemini
 
-claude:
-  method: api_key
-  api_key: "sk-ant-..."
+# codex-oauth.yml
+access_token: "..."
+refresh_token: "..."
+expires_at: 1736956800
+account_id: "org-xxx"
+
+# claude-api-key.yml
+api_key: "sk-ant-..."
 ```
 
 ### CLI Commands
 
 ```bash
-glee oauth codex        # PKCE flow, opens browser
-glee oauth copilot      # Device flow, shows code
-glee auth claude <key>  # Set API key
-glee auth status        # Show configured providers
+glee oauth codex           # PKCE flow, opens browser
+glee oauth copilot         # Device flow, shows code
+glee auth set claude <key> # Set API key
+glee auth set gemini <key> # Set API key
+glee auth status           # Show configured providers
+glee auth logout <provider> # Remove credentials
 ```
 
 ## 9. Job States
