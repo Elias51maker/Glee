@@ -80,20 +80,23 @@ Inspect and understand database schemas.
 
 ---
 
-## Background Tasks — `glee.task.*`
+## Task Delegation — `glee.task`
 
-Delegate complex tasks to background agents.
+Delegate tasks to background agents.
 
 | Tool | Status | Description |
 |------|--------|-------------|
-| `glee.task.submit` | 📋 | Submit a task, returns task_id |
+| `glee.task` | ✅ | Spawn an agent to execute a task (sync) |
+
+### Planned Extensions — `glee.task.*`
+
+| Tool | Status | Description |
+|------|--------|-------------|
+| `glee.task.submit` | 📋 | Submit async task, returns task_id |
 | `glee.task.get` | 📋 | Get task status and progress |
 | `glee.task.wait` | 📋 | Block until task completes |
-| `glee.task.result` | 📋 | Get final result |
 | `glee.task.list` | 📋 | List all tasks |
 | `glee.task.cancel` | 📋 | Cancel a running task |
-| `glee.task.needs_input` | 📋 | Check if task needs human input |
-| `glee.task.provide_input` | 📋 | Provide input to waiting task |
 
 ---
 
@@ -147,12 +150,12 @@ Automatic context management — not MCP tools, but integrated features.
 | `glee.review` | 1 | 0 | 1 |
 | `glee.config.*` | 2 | 0 | 2 |
 | `glee.status` | 1 | 0 | 1 |
+| `glee.task` | 1 | 5 | 6 |
 | `glee.git.*` | 0 | 6 | 6 |
 | `glee.db.*` | 0 | 7 | 7 |
-| `glee.task.*` | 0 | 8 | 8 |
 | `glee.github.*` | 0 | 9 | 9 |
 | `glee.rag.*` | 0 | 4 | 4 |
-| **Total** | **10** | **34** | **44** |
+| **Total** | **11** | **31** | **42** |
 
 ---
 

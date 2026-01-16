@@ -21,7 +21,7 @@ glee init claude
 
 ## Tools
 
-> See [Full MCP Service List](docs/GleeMcpServiceList.md) for all 44 tools (10 implemented, 34 planned).
+> See [Full MCP Service List](docs/GleeMcpServiceList.md) for all 42 tools (11 implemented, 31 planned).
 
 ### Memory
 
