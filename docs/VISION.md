@@ -1,5 +1,7 @@
 # Glee Vision
 
+> **Note:** This document describes the long-term vision for Glee. For current implementation status, see [PRD.md](PRD.md) and [../README.md](../README.md).
+
 ## The Problem
 
 Coding agents are everywhere — Claude Code, Codex, Gemini CLI, Cursor, Windsurf, and more are shipping weekly. They're powerful. They're fast. But they all share the same fundamental problems:
@@ -193,19 +195,29 @@ AI agents can operate autonomously — defining agents, spawning workflows, maki
 
 **Working features:**
 - MCP integration with Claude Code
+- Task delegation via `glee.task` (CLI orchestration)
 - Reviewer preference management (primary + secondary)
-- Structured code review with severity levels
+- Structured code review with severity levels (user-controlled feedback)
 - Persistent memory (LanceDB + DuckDB)
+- Authentication: OAuth (Codex, Copilot) + API keys
 - Stream logging for observability
 
 **CLI commands:**
 ```bash
-glee init                              # Initialize project
+glee init claude                       # Initialize project
+glee auth                              # Add credentials (interactive)
+glee auth status                       # Show configured providers
 glee config set reviewer.primary codex # Set primary reviewer
-glee config set reviewer.secondary gemini # Set secondary reviewer
 glee status                            # View configuration
 glee review src/                       # Run code review
 ```
+
+**What's NOT yet implemented:**
+- ReAct agent loop (currently just CLI orchestration)
+- `glee.job.*` API (using `glee.task` for now)
+- Human-in-the-loop workflow
+- Tool executor (HTTP, Command, Python)
+- Agents defining other agents
 
 ## The Future
 

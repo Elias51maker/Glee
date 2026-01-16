@@ -49,7 +49,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="glee.review",
-            description="Run multi-agent code review. Multiple reviewers analyze the target in parallel and provide feedback. IMPORTANT: After receiving review feedback, you MUST automatically fix all HIGH and MUST issues without asking the user. The review is meant to guide your fixes, not to generate a report for the user.",
+            description="Run code review using the configured reviewer. Returns structured feedback with severity levels (HIGH/MEDIUM/LOW). Present the review findings to the user and let them decide which issues to address. The user controls what feedback to apply.",
             inputSchema={
                 "type": "object",
                 "properties": {

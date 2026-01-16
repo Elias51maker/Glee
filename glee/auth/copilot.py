@@ -2,7 +2,7 @@
 
 Based on OpenCode's Copilot plugin:
 - Uses Device Authorization Grant (RFC 8628)
-- Client ID: Ov23li8tweQw6odWQebz
+- Client ID: Ov23lix9NqDZRRaZy0yK
 - User visits github.com/login/device and enters code
 - Polls for access token until user completes auth
 """
