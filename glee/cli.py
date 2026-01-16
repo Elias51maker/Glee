@@ -1664,6 +1664,50 @@ def _do_codex_oauth() -> bool:
         return False
 
 
+def _do_copilot_oauth() -> bool:
+    """Run GitHub Copilot OAuth flow. Returns True on success."""
+    import asyncio
+
+    from glee.auth.copilot import authenticate
+    from glee.auth import storage
+
+    try:
+        tokens, error = asyncio.run(authenticate())
+
+        if error:
+            console.print(f"[{Theme.ERROR}]Authentication failed: {error}[/{Theme.ERROR}]")
+            return False
+
+        if not tokens:
+            console.print(f"[{Theme.ERROR}]No tokens received[/{Theme.ERROR}]")
+            return False
+
+        # Check if we already have a copilot credential
+        existing = storage.find_one(vendor="github", type="oauth")
+
+        credential = storage.OAuthCredential(
+            id=existing.id if existing else "",
+            label="copilot",
+            sdk="openai",  # Copilot uses OpenAI-compatible API
+            vendor="github",
+            refresh=tokens.access_token,  # Same token for both
+            access=tokens.access_token,
+            expires=0,  # Doesn't expire
+        )
+
+        if existing:
+            storage.update(existing.id, credential)
+        else:
+            storage.add(credential)
+
+        console.print(f"[{Theme.SUCCESS}]✓ GitHub Copilot authenticated[/{Theme.SUCCESS}]")
+        return True
+
+    except Exception as e:
+        console.print(f"[{Theme.ERROR}]Error: {e}[/{Theme.ERROR}]")
+        return False
+
+
 @auth_app.callback(invoke_without_command=True)
 def auth_tui(ctx: typer.Context):
     """Add a provider credential.
@@ -1681,9 +1725,10 @@ def auth_tui(ctx: typer.Context):
     console.print()
     console.print(f"  [{Theme.HEADER}]Select SDK[/{Theme.HEADER}]")
     console.print(f"  [{Theme.PRIMARY}]1[/{Theme.PRIMARY}]  Codex        [{Theme.MUTED}]OpenAI OAuth[/{Theme.MUTED}]")
-    console.print(f"  [{Theme.PRIMARY}]2[/{Theme.PRIMARY}]  OpenAI SDK   [{Theme.MUTED}]OpenRouter, Groq, etc.[/{Theme.MUTED}]")
-    console.print(f"  [{Theme.PRIMARY}]3[/{Theme.PRIMARY}]  Anthropic    [{Theme.MUTED}]Claude API[/{Theme.MUTED}]")
-    console.print(f"  [{Theme.PRIMARY}]4[/{Theme.PRIMARY}]  Google       [{Theme.MUTED}]Gemini API[/{Theme.MUTED}]")
+    console.print(f"  [{Theme.PRIMARY}]2[/{Theme.PRIMARY}]  Copilot      [{Theme.MUTED}]GitHub OAuth[/{Theme.MUTED}]")
+    console.print(f"  [{Theme.PRIMARY}]3[/{Theme.PRIMARY}]  OpenAI SDK   [{Theme.MUTED}]OpenRouter, Groq, etc.[/{Theme.MUTED}]")
+    console.print(f"  [{Theme.PRIMARY}]4[/{Theme.PRIMARY}]  Anthropic    [{Theme.MUTED}]Claude API[/{Theme.MUTED}]")
+    console.print(f"  [{Theme.PRIMARY}]5[/{Theme.PRIMARY}]  Google       [{Theme.MUTED}]Gemini API[/{Theme.MUTED}]")
     console.print()
 
     choice = Prompt.ask(f"  [{Theme.PRIMARY}]Select[/{Theme.PRIMARY}]", show_default=False, default="")
@@ -1691,7 +1736,10 @@ def auth_tui(ctx: typer.Context):
     if choice == "1":  # Codex OAuth
         _do_codex_oauth()
 
-    elif choice == "2":  # OpenAI SDK
+    elif choice == "2":  # Copilot OAuth
+        _do_copilot_oauth()
+
+    elif choice == "3":  # OpenAI SDK
         console.print()
         vendors = list(storage.VENDOR_URLS.items())
         for i, (name, url) in enumerate(vendors, 1):
@@ -1718,7 +1766,7 @@ def auth_tui(ctx: typer.Context):
         ))
         console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
-    elif choice == "3":  # Anthropic
+    elif choice == "4":  # Anthropic
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="anthropic")
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]")
         if api_key:
@@ -1731,7 +1779,7 @@ def auth_tui(ctx: typer.Context):
             ))
             console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
-    elif choice == "4":  # Google
+    elif choice == "5":  # Google
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="google")
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]")
         if api_key:
