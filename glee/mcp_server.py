@@ -476,6 +476,45 @@ async def list_tools() -> list[Tool]:
                 "required": ["query"],
             },
         ),
+        Tool(
+            name="glee.github.merge_pr",
+            description="Merge a pull request. REQUIRES human confirmation via the 'confirm' parameter set to true. First call without confirm to preview, then call with confirm=true to execute.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "owner": {
+                        "type": "string",
+                        "description": "Repository owner (e.g., 'anthropics')",
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name (e.g., 'claude-code')",
+                    },
+                    "number": {
+                        "type": "integer",
+                        "description": "PR number to merge",
+                    },
+                    "merge_method": {
+                        "type": "string",
+                        "enum": ["merge", "squash", "rebase"],
+                        "description": "Merge method (default: merge)",
+                    },
+                    "commit_title": {
+                        "type": "string",
+                        "description": "Custom commit title (for squash/merge)",
+                    },
+                    "commit_message": {
+                        "type": "string",
+                        "description": "Custom commit message (for squash/merge)",
+                    },
+                    "confirm": {
+                        "type": "boolean",
+                        "description": "Must be true to actually merge. Without this, returns PR info for confirmation.",
+                    },
+                },
+                "required": ["owner", "repo", "number"],
+            },
+        ),
     ]
 
 
@@ -521,6 +560,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await _handle_github_fetch_pr(arguments)
     elif name == "glee.github.search_prs":
         return await _handle_github_search_prs(arguments)
+    elif name == "glee.github.merge_pr":
+        return await _handle_github_merge_pr(arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -1796,6 +1837,73 @@ async def _handle_github_search_prs(arguments: dict[str, Any]) -> list[TextConte
     except Exception as e:
         logger.exception("Error searching PRs")
         return [TextContent(type="text", text=f"Error searching PRs: {e}")]
+
+
+async def _handle_github_merge_pr(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee.github.merge_pr tool call."""
+    from glee.github import GitHubClient
+
+    owner = arguments.get("owner")
+    repo = arguments.get("repo")
+    number = arguments.get("number")
+    if not owner or not repo or not number:
+        return [TextContent(type="text", text="Error: owner, repo, and number are required")]
+
+    confirm = arguments.get("confirm", False)
+    merge_method = arguments.get("merge_method", "merge")
+    commit_title = arguments.get("commit_title")
+    commit_message = arguments.get("commit_message")
+
+    try:
+        async with GitHubClient() as client:
+            # Always fetch PR info first
+            pr = await client.get_pr(owner, repo, number)
+
+            # If not confirmed, return PR info for user confirmation
+            if confirm is not True:
+                lines = [
+                    "## Merge Confirmation Required",
+                    "",
+                    f"**PR #{pr.number}:** {pr.title}",
+                    f"**Author:** {pr.user}",
+                    f"**Branch:** {pr.head_ref} -> {pr.base_ref}",
+                    f"**State:** {pr.state}",
+                    f"**URL:** {pr.html_url}",
+                    "",
+                    f"**Merge method:** {merge_method}",
+                    "",
+                    "To merge this PR, call again with `confirm: true`",
+                ]
+                return [TextContent(type="text", text="\n".join(lines))]
+
+            # Check PR state
+            if pr.state != "open":
+                return [TextContent(type="text", text=f"Error: PR #{number} is {pr.state}, cannot merge")]
+
+            # Perform merge
+            result = await client.merge_pr(
+                owner=owner,
+                repo=repo,
+                number=number,
+                merge_method=merge_method,
+                commit_title=commit_title,
+                commit_message=commit_message,
+            )
+
+            lines = [
+                "## PR Merged Successfully",
+                "",
+                f"**PR #{pr.number}:** {pr.title}",
+                f"**Merge commit:** {result.get('sha', 'N/A')}",
+                f"**Message:** {result.get('message', 'Merged')}",
+            ]
+            return [TextContent(type="text", text="\n".join(lines))]
+
+    except ValueError as e:
+        return [TextContent(type="text", text=f"Error: {e}")]
+    except Exception as e:
+        logger.exception("Error merging PR")
+        return [TextContent(type="text", text=f"Error merging PR: {e}")]
 
 
 async def run_server():

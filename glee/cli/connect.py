@@ -239,7 +239,8 @@ def connect_tui(ctx: typer.Context):
         console.print()
         console.print(f"  [{Theme.MUTED}]GitHub Personal Access Token[/{Theme.MUTED}]")
         console.print(f"  [{Theme.MUTED}]Create at: https://github.com/settings/tokens[/{Theme.MUTED}]")
-        console.print(f"  [{Theme.MUTED}]Scopes needed: repo, read:org[/{Theme.MUTED}]")
+        console.print(f"  [{Theme.MUTED}]Classic token scopes: repo, read:org[/{Theme.MUTED}]")
+        console.print(f"  [{Theme.MUTED}]Fine-grained: Contents (read/write), Pull requests (read/write)[/{Theme.MUTED}]")
         console.print()
         token = Prompt.ask(f"  [{Theme.PRIMARY}]Token[/{Theme.PRIMARY}]", password=True)
         if token:
@@ -447,7 +448,8 @@ def connect_github():
     console.print()
     console.print(f"  [{Theme.MUTED}]GitHub Personal Access Token[/{Theme.MUTED}]")
     console.print(f"  [{Theme.MUTED}]Create at: https://github.com/settings/tokens[/{Theme.MUTED}]")
-    console.print(f"  [{Theme.MUTED}]Scopes needed: repo, read:org[/{Theme.MUTED}]")
+    console.print(f"  [{Theme.MUTED}]Classic token scopes: repo, read:org[/{Theme.MUTED}]")
+    console.print(f"  [{Theme.MUTED}]Fine-grained: Contents (read/write), Pull requests (read/write)[/{Theme.MUTED}]")
     console.print()
     token = Prompt.ask(f"  [{Theme.PRIMARY}]Token[/{Theme.PRIMARY}]", password=True)
     if token:

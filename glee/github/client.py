@@ -541,6 +541,46 @@ class GitHubClient:
             user=data["user"]["login"],
         )
 
+    async def merge_pr(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        merge_method: str = "merge",
+        commit_title: str | None = None,
+        commit_message: str | None = None,
+    ) -> dict[str, Any]:
+        """Merge a pull request.
+
+        Args:
+            owner: Repository owner.
+            repo: Repository name.
+            number: PR number.
+            merge_method: Merge method: merge, squash, or rebase.
+            commit_title: Custom commit title (for squash/merge).
+            commit_message: Custom commit message (for squash/merge).
+
+        Returns:
+            Merge result with sha and merged status.
+
+        Raises:
+            httpx.HTTPStatusError: If merge fails (e.g., not mergeable).
+        """
+        payload: dict[str, Any] = {
+            "merge_method": merge_method,
+        }
+        if commit_title:
+            payload["commit_title"] = commit_title
+        if commit_message:
+            payload["commit_message"] = commit_message
+
+        resp = await self.client.put(
+            f"/repos/{owner}/{repo}/pulls/{number}/merge",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def _parse_pagination(self, resp: httpx.Response) -> dict[str, Any]:
         """Parse pagination info from Link header.
 
