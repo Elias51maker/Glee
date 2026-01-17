@@ -351,13 +351,16 @@ def memory_overview(
                 else:
                     age_info = f"{age_days} days ago"
 
+        # 15% padding on each side
+        side_pad = int(console.width * 0.15)
+
         if age_info:
-            console.print(f"[dim]Last updated: {age_info}[/dim]")
+            console.print(Padding(f"[dim]Last updated: {age_info}[/dim]", (0, side_pad, 0, side_pad)))
             if age_days >= 7:
-                console.print("[yellow]Stale - run: glee memory overview --generate[/yellow]")
+                console.print(Padding("[yellow]Stale - run: glee memory overview --generate[/yellow]", (0, side_pad, 0, side_pad)))
             console.print()
 
-        console.print(Markdown(content))
+        console.print(Padding(Markdown(content), (0, side_pad, 1, side_pad)))
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
