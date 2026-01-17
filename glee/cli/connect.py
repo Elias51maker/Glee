@@ -130,13 +130,14 @@ def connect_tui(ctx: typer.Context):
     console.print(f"  [{Theme.MUTED}]─── AI Providers ───[/{Theme.MUTED}]")
     console.print(f"    [{Theme.PRIMARY}]1[/{Theme.PRIMARY}]  Codex        [{Theme.MUTED}]· OpenAI OAuth[/{Theme.MUTED}]")
     console.print(f"    [{Theme.PRIMARY}]2[/{Theme.PRIMARY}]  Copilot      [{Theme.MUTED}]· GitHub OAuth[/{Theme.MUTED}]")
-    console.print(f"    [{Theme.PRIMARY}]3[/{Theme.PRIMARY}]  OpenAI SDK   [{Theme.MUTED}]· OpenRouter, Groq, etc.[/{Theme.MUTED}]")
-    console.print(f"    [{Theme.PRIMARY}]4[/{Theme.PRIMARY}]  Anthropic    [{Theme.MUTED}]· Direct API[/{Theme.MUTED}]")
-    console.print(f"    [{Theme.PRIMARY}]5[/{Theme.PRIMARY}]  Vertex AI    [{Theme.MUTED}]· Google Cloud[/{Theme.MUTED}]")
-    console.print(f"    [{Theme.PRIMARY}]6[/{Theme.PRIMARY}]  Bedrock      [{Theme.MUTED}]· AWS[/{Theme.MUTED}]")
+    console.print(f"    [{Theme.PRIMARY}]3[/{Theme.PRIMARY}]  OpenRouter   [{Theme.MUTED}]· Multi-model gateway[/{Theme.MUTED}]")
+    console.print(f"    [{Theme.PRIMARY}]4[/{Theme.PRIMARY}]  OpenAI SDK   [{Theme.MUTED}]· Groq, Together, etc.[/{Theme.MUTED}]")
+    console.print(f"    [{Theme.PRIMARY}]5[/{Theme.PRIMARY}]  Anthropic    [{Theme.MUTED}]· Direct API[/{Theme.MUTED}]")
+    console.print(f"    [{Theme.PRIMARY}]6[/{Theme.PRIMARY}]  Vertex AI    [{Theme.MUTED}]· Google Cloud[/{Theme.MUTED}]")
+    console.print(f"    [{Theme.PRIMARY}]7[/{Theme.PRIMARY}]  Bedrock      [{Theme.MUTED}]· AWS[/{Theme.MUTED}]")
     console.print()
     console.print(f"  [{Theme.MUTED}]─── Services ───[/{Theme.MUTED}]")
-    console.print(f"    [{Theme.PRIMARY}]7[/{Theme.PRIMARY}]  GitHub       [{Theme.MUTED}]· PR reviews, API access[/{Theme.MUTED}]")
+    console.print(f"    [{Theme.PRIMARY}]8[/{Theme.PRIMARY}]  GitHub       [{Theme.MUTED}]· PR reviews, API access[/{Theme.MUTED}]")
     console.print()
 
     choice = Prompt.ask(f"  [{Theme.PRIMARY}]Select[/{Theme.PRIMARY}]", show_default=False, default="")
@@ -147,7 +148,28 @@ def connect_tui(ctx: typer.Context):
     elif choice == "2":  # Copilot OAuth
         _do_copilot_oauth()
 
-    elif choice == "3":  # OpenAI SDK
+    elif choice == "3":  # OpenRouter
+        console.print()
+        console.print(f"  [{Theme.MUTED}]Get your API key at: https://openrouter.ai/keys[/{Theme.MUTED}]")
+        console.print()
+        api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]", password=True)
+        if api_key:
+            existing = storage.ConnectionStorage.find_one("openrouter", category="ai_provider")
+            credential = storage.APICredential(
+                id=existing.id if existing else "",
+                label="openrouter",
+                sdk="openrouter",
+                vendor="openrouter",
+                key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+            )
+            if existing:
+                storage.ConnectionStorage.update(existing.id, credential)
+            else:
+                storage.ConnectionStorage.add(credential)
+            console.print(f"  [{Theme.SUCCESS}]✓ OpenRouter connected[/{Theme.SUCCESS}]")
+
+    elif choice == "4":  # OpenAI SDK
         from rich import box
         from rich.table import Table
 
@@ -185,7 +207,7 @@ def connect_tui(ctx: typer.Context):
         ))
         console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
-    elif choice == "4":  # Anthropic direct
+    elif choice == "5":  # Anthropic direct
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="anthropic")
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]")
         if api_key:
@@ -199,7 +221,7 @@ def connect_tui(ctx: typer.Context):
             ))
             console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
-    elif choice == "5":  # Vertex AI
+    elif choice == "6":  # Vertex AI
         console.print()
         console.print(f"  [{Theme.MUTED}]Vertex AI uses Google Cloud credentials (ADC)[/{Theme.MUTED}]")
         console.print(f"  [{Theme.MUTED}]Run: gcloud auth application-default login[/{Theme.MUTED}]")
@@ -218,7 +240,7 @@ def connect_tui(ctx: typer.Context):
             ))
             console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
-    elif choice == "6":  # Bedrock
+    elif choice == "7":  # Bedrock
         console.print()
         console.print(f"  [{Theme.MUTED}]Bedrock uses AWS credentials[/{Theme.MUTED}]")
         console.print(f"  [{Theme.MUTED}]Configure: aws configure[/{Theme.MUTED}]")
@@ -235,7 +257,7 @@ def connect_tui(ctx: typer.Context):
         ))
         console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
-    elif choice == "7":  # GitHub
+    elif choice == "8":  # GitHub
         console.print()
         console.print(f"  [{Theme.MUTED}]GitHub Personal Access Token[/{Theme.MUTED}]")
         console.print(f"  [{Theme.MUTED}]Create at: https://github.com/settings/tokens[/{Theme.MUTED}]")

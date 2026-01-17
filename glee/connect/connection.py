@@ -61,6 +61,8 @@ class Connection:
 
         if c.sdk == "openai":
             return self._chat_openai(message, max_tokens)
+        elif c.sdk == "openrouter":
+            return self._chat_openrouter(message, max_tokens)
         elif c.sdk == "anthropic":
             return self._chat_anthropic(message, max_tokens)
         elif c.sdk == "vertex":
@@ -148,6 +150,45 @@ class Connection:
                 model=data.get("model", ""),
                 raw=data,
             )
+
+    def _chat_openrouter(self, message: str, max_tokens: int) -> ChatResponse:
+        """Chat using OpenRouter SDK."""
+        from openrouter import OpenRouter
+
+        from glee.connect.storage import APICredential
+
+        c = self.credential
+        if not isinstance(c, APICredential):
+            raise ValueError("OpenRouter requires API key credential")
+
+        with OpenRouter(api_key=c.key) as client:
+            response = client.chat.send(
+                model="minimax/minimax-m2",
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": message}],
+            )
+
+        # Extract content from response (SDK types are dynamic)
+        content = ""
+        model_name = ""
+        raw = None
+
+        completion = getattr(response, "chat_completion", None)
+        if completion:
+            choices: list[object] = getattr(completion, "choices", None) or []
+            if choices:
+                msg = getattr(choices[0], "message", None)
+                if msg:
+                    content = getattr(msg, "content", "") or ""
+            model_name = getattr(completion, "model", "") or ""
+            if hasattr(completion, "model_dump"):
+                raw = completion.model_dump()
+
+        return ChatResponse(
+            content=str(content).strip(),
+            model=str(model_name),
+            raw=raw,
+        )
 
     def _chat_anthropic(self, message: str, max_tokens: int) -> ChatResponse:
         """Chat using Anthropic API."""
