@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 if TYPE_CHECKING:
-    from glee.connect.storage import Credential
+    from glee.connect.credential import Credential
 
 
 @dataclass
@@ -36,7 +36,7 @@ class Connection:
         self.credential = credential
 
     @property
-    def sdk(self) -> str:
+    def sdk(self) -> str | None:
         return self.credential.sdk
 
     @property
@@ -45,7 +45,7 @@ class Connection:
 
     @property
     def is_oauth(self) -> bool:
-        return self.credential.type == "oauth"
+        return self.credential.type == "ai_oauth"
 
     def chat(self, message: str, max_tokens: int = 100) -> ChatResponse:
         """Send a chat message and get a response.
@@ -59,7 +59,9 @@ class Connection:
         """
         c = self.credential
 
-        if c.sdk == "openai":
+        if c.sdk is None:
+            raise ValueError(f"Cannot chat with service credential '{c.label}' - no SDK configured")
+        elif c.sdk == "openai":
             return self._chat_openai(message, max_tokens)
         elif c.sdk == "openrouter":
             return self._chat_openrouter(message, max_tokens)
@@ -74,11 +76,11 @@ class Connection:
 
     def _chat_openai(self, message: str, max_tokens: int) -> ChatResponse:
         """Chat using OpenAI-compatible API."""
-        from glee.connect.storage import OAuthCredential
+        from glee.connect.credential import AIProviderOAuthCredential
 
         c = self.credential
 
-        if isinstance(c, OAuthCredential):
+        if isinstance(c, AIProviderOAuthCredential):
             token = c.access
 
             if c.vendor == "github":
@@ -155,10 +157,10 @@ class Connection:
         """Chat using OpenRouter SDK."""
         from openrouter import OpenRouter
 
-        from glee.connect.storage import APICredential
+        from glee.connect.credential import AIProviderAPICredential
 
         c = self.credential
-        if not isinstance(c, APICredential):
+        if not isinstance(c, AIProviderAPICredential):
             raise ValueError("OpenRouter requires API key credential")
 
         with OpenRouter(api_key=c.key) as client:
@@ -192,10 +194,10 @@ class Connection:
 
     def _chat_anthropic(self, message: str, max_tokens: int) -> ChatResponse:
         """Chat using Anthropic API."""
-        from glee.connect.storage import APICredential
+        from glee.connect.credential import AIProviderAPICredential
 
         c = self.credential
-        if not isinstance(c, APICredential):
+        if not isinstance(c, AIProviderAPICredential):
             raise ValueError("Anthropic requires API key credential")
 
         resp = httpx.post(
@@ -218,10 +220,10 @@ class Connection:
 
     def _chat_vertex(self, message: str, max_tokens: int) -> ChatResponse:
         """Chat using Vertex AI."""
-        from glee.connect.storage import APICredential
+        from glee.connect.credential import AIProviderAPICredential
 
         c = self.credential
-        if not isinstance(c, APICredential):
+        if not isinstance(c, AIProviderAPICredential):
             raise ValueError("Vertex requires API credential")
 
         import google.auth
@@ -251,10 +253,10 @@ class Connection:
         """Chat using AWS Bedrock."""
         import json
 
-        from glee.connect.storage import APICredential
+        from glee.connect.credential import AIProviderAPICredential
 
         c = self.credential
-        if not isinstance(c, APICredential):
+        if not isinstance(c, AIProviderAPICredential):
             raise ValueError("Bedrock requires API credential")
 
         import boto3

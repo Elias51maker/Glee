@@ -38,7 +38,7 @@ def _do_codex_oauth() -> bool:
         # Check if we already have a codex credential
         existing = storage.ConnectionStorage.find_one(vendor="openai", category="ai_provider")
 
-        credential = storage.OAuthCredential(
+        credential = storage.AIProviderOAuthCredential(
             id=existing.id if existing else "",
             label="codex",
             sdk="openai",
@@ -87,7 +87,7 @@ def _do_copilot_oauth() -> bool:
         # Check if we already have a copilot credential
         existing = storage.ConnectionStorage.find_one(vendor="github", category="ai_provider")
 
-        credential = storage.OAuthCredential(
+        credential = storage.AIProviderOAuthCredential(
             id=existing.id if existing else "",
             label="copilot",
             sdk="openai",  # Copilot uses OpenAI-compatible API
@@ -155,7 +155,7 @@ def connect_tui(ctx: typer.Context):
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]", password=True)
         if api_key:
             existing = storage.ConnectionStorage.find_one("openrouter", category="ai_provider")
-            credential = storage.APICredential(
+            credential = storage.AIProviderAPICredential(
                 id=existing.id if existing else "",
                 label="openrouter",
                 sdk="openrouter",
@@ -197,7 +197,7 @@ def connect_tui(ctx: typer.Context):
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default=vendor)
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]", default="")
 
-        storage.ConnectionStorage.add(storage.APICredential(
+        storage.ConnectionStorage.add(storage.AIProviderAPICredential(
             id="",
             label=label,
             sdk="openai",
@@ -211,7 +211,7 @@ def connect_tui(ctx: typer.Context):
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="anthropic")
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]")
         if api_key:
-            storage.ConnectionStorage.add(storage.APICredential(
+            storage.ConnectionStorage.add(storage.AIProviderAPICredential(
                 id="",
                 label=label,
                 sdk="anthropic",
@@ -230,7 +230,7 @@ def connect_tui(ctx: typer.Context):
         region = Prompt.ask(f"  [{Theme.PRIMARY}]Region[/{Theme.PRIMARY}]", default="us-central1")
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="vertex")
         if project_id:
-            storage.ConnectionStorage.add(storage.APICredential(
+            storage.ConnectionStorage.add(storage.AIProviderAPICredential(
                 id="",
                 label=label,
                 sdk="vertex",
@@ -247,7 +247,7 @@ def connect_tui(ctx: typer.Context):
         console.print()
         region = Prompt.ask(f"  [{Theme.PRIMARY}]AWS Region[/{Theme.PRIMARY}]", default="us-east-1")
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="bedrock")
-        storage.ConnectionStorage.add(storage.APICredential(
+        storage.ConnectionStorage.add(storage.AIProviderAPICredential(
             id="",
             label=label,
             sdk="bedrock",
@@ -266,14 +266,15 @@ def connect_tui(ctx: typer.Context):
         console.print()
         token = Prompt.ask(f"  [{Theme.PRIMARY}]Token[/{Theme.PRIMARY}]", password=True)
         if token:
+            # Show masked confirmation
+            masked = token[:4] + "*" * (len(token) - 8) + token[-4:] if len(token) > 8 else "*" * len(token)
+            console.print(f"  [{Theme.MUTED}]Token: {masked}[/{Theme.MUTED}]")
             # Check if already exists (only service category, not ai_provider like Copilot)
             existing = storage.ConnectionStorage.find_one("github", category="service")
-            credential = storage.APICredential(
+            credential = storage.ServiceCredential(
                 id=existing.id if existing else "",
                 label="github",
-                sdk="github",
                 vendor="github",
-                category="service",
                 key=token,
                 base_url="https://api.github.com",
             )
@@ -306,19 +307,25 @@ def connect_status():
     auth_tree = Tree(f"[{Theme.HEADER}]Credentials[/{Theme.HEADER}]")
 
     for c in creds:
-        if isinstance(c, storage.OAuthCredential):
+        if isinstance(c, storage.AIProviderOAuthCredential):
             status = f"[{Theme.WARNING}]expired[/{Theme.WARNING}]" if c.is_expired() else f"[{Theme.SUCCESS}]active[/{Theme.SUCCESS}]"
             branch = auth_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {c.label} [{Theme.ACCENT}]oauth[/{Theme.ACCENT}] {status}")
             branch.add(f"[{Theme.MUTED}]id:[/{Theme.MUTED}] {c.id}")
-            branch.add(f"[{Theme.MUTED}]vendor:[/{Theme.MUTED}] {c.vendor}")
+            branch.add(f"[{Theme.MUTED}]vendor:[/{Theme.MUTED}] {c.vendor} [{Theme.ACCENT}]{c.sdk}[/{Theme.ACCENT}]")
             if c.account_id:
                 branch.add(f"[{Theme.MUTED}]account:[/{Theme.MUTED}] {c.account_id}")
-        else:
-            # APICredential
+        elif isinstance(c, storage.AIProviderAPICredential):
             masked = c.key[:8] + "..." if len(c.key) > 8 else "***"
             branch = auth_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {c.label} [{Theme.MUTED}]{masked}[/{Theme.MUTED}]")
             branch.add(f"[{Theme.MUTED}]id:[/{Theme.MUTED}] {c.id}")
             branch.add(f"[{Theme.MUTED}]vendor:[/{Theme.MUTED}] {c.vendor} [{Theme.ACCENT}]{c.sdk}[/{Theme.ACCENT}]")
+            if c.base_url:
+                branch.add(f"[{Theme.MUTED}]url:[/{Theme.MUTED}] {c.base_url}")
+        else:  # ServiceCredential
+            masked = c.key[:8] + "..." if len(c.key) > 8 else "***"
+            branch = auth_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {c.label} [{Theme.MUTED}]{masked}[/{Theme.MUTED}]")
+            branch.add(f"[{Theme.MUTED}]id:[/{Theme.MUTED}] {c.id}")
+            branch.add(f"[{Theme.MUTED}]vendor:[/{Theme.MUTED}] {c.vendor} [{Theme.ACCENT}]service[/{Theme.ACCENT}]")
             if c.base_url:
                 branch.add(f"[{Theme.MUTED}]url:[/{Theme.MUTED}] {c.base_url}")
 
@@ -350,7 +357,7 @@ def connect_list():
     table.add_column("SDK", style=Theme.ACCENT)
 
     for c in creds:
-        table.add_row(c.id, c.label, c.vendor, c.sdk)
+        table.add_row(c.id, c.label, c.vendor, c.sdk or "-")
 
     console.print(Padding(table, (0, 2)))
     console.print()
@@ -388,7 +395,7 @@ def connect_test(
         table.add_column("SDK", style=Theme.ACCENT)
 
         for c in creds:
-            table.add_row(c.id, c.label, c.vendor, c.sdk)
+            table.add_row(c.id, c.label, c.vendor, c.sdk or "-")
 
         console.print(Padding(table, (0, 2)))
         console.print()
@@ -475,14 +482,15 @@ def connect_github():
     console.print()
     token = Prompt.ask(f"  [{Theme.PRIMARY}]Token[/{Theme.PRIMARY}]", password=True)
     if token:
+        # Show masked confirmation
+        masked = token[:4] + "*" * (len(token) - 8) + token[-4:] if len(token) > 8 else "*" * len(token)
+        console.print(f"  [{Theme.MUTED}]Token: {masked}[/{Theme.MUTED}]")
         # Check if already exists (only service category, not ai_provider like Copilot)
         existing = storage.ConnectionStorage.find_one("github", category="service")
-        credential = storage.APICredential(
+        credential = storage.ServiceCredential(
             id=existing.id if existing else "",
             label="github",
-            sdk="github",
             vendor="github",
-            category="service",
             key=token,
             base_url="https://api.github.com",
         )

@@ -5,8 +5,7 @@ Single file storage: ~/.config/glee/connections.yml
 ```yaml
 - id: a1b2c3d4e5
   label: codex
-  type: oauth
-  category: ai_provider
+  type: ai_oauth
   sdk: openai
   vendor: openai
   refresh: "..."
@@ -16,17 +15,14 @@ Single file storage: ~/.config/glee/connections.yml
 
 - id: f6g7h8i9j0
   label: anthropic
-  type: api
-  category: ai_provider
+  type: ai_api
   sdk: anthropic
   vendor: anthropic
   key: "sk-ant-..."
 
 - id: k1l2m3n4o5
   label: github
-  type: api
-  category: service
-  sdk: github
+  type: service
   vendor: github
   base_url: "https://api.github.com"
   key: "ghp_..."
@@ -38,18 +34,38 @@ from __future__ import annotations
 import os
 import secrets
 import string
-import time
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import yaml
 
-# SDK types
-SDK = Literal["openai", "openrouter", "anthropic", "vertex", "bedrock", "github"]
+from glee.connect.credential import (
+    SDK,
+    AIProviderAPICredential,
+    AIProviderCredential,
+    AIProviderOAuthCredential,
+    APICredential,
+    Category,
+    Credential,
+    OAuthCredential,
+    ServiceCredential,
+)
 
-# Category types
-Category = Literal["ai_provider", "service"]
+# Re-export for backwards compatibility
+__all__ = [
+    "SDK",
+    "Category",
+    "AIProviderOAuthCredential",
+    "AIProviderAPICredential",
+    "ServiceCredential",
+    "AIProviderCredential",
+    "Credential",
+    "OAuthCredential",
+    "APICredential",
+    "ConnectionStorage",
+    "VENDOR_URLS",
+    "generate_id",
+]
 
 # Common vendors with known base URLs (for OpenAI SDK)
 VENDOR_URLS: dict[str, str] = {
@@ -70,101 +86,6 @@ def generate_id() -> str:
     chars = string.ascii_lowercase + string.digits
     return "".join(secrets.choice(chars) for _ in range(10))
 
-
-@dataclass
-class OAuthCredential:
-    """OAuth credential (e.g., Codex, Gemini)."""
-
-    id: str
-    label: str
-    sdk: SDK
-    vendor: str
-    category: Category = "ai_provider"
-    refresh: str = ""
-    access: str = ""
-    expires: int = 0  # Unix timestamp (milliseconds)
-    account_id: str | None = None
-    type: Literal["oauth"] = field(default="oauth", repr=False)
-
-    def is_expired(self) -> bool:
-        """Check if the access token is expired."""
-        if self.expires == 0:
-            return False
-        return time.time() * 1000 > self.expires
-
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {
-            "id": self.id,
-            "label": self.label,
-            "type": "oauth",
-            "category": self.category,
-            "sdk": self.sdk,
-            "vendor": self.vendor,
-            "refresh": self.refresh,
-            "access": self.access,
-            "expires": self.expires,
-        }
-        if self.account_id:
-            d["account_id"] = self.account_id
-        return d
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> OAuthCredential:
-        return cls(
-            id=data.get("id", generate_id()),
-            label=data.get("label", ""),
-            sdk=data.get("sdk", "openai"),
-            vendor=data.get("vendor", ""),
-            category=data.get("category", "ai_provider"),
-            refresh=data.get("refresh", ""),
-            access=data.get("access", ""),
-            expires=data.get("expires", 0),
-            account_id=data.get("account_id"),
-        )
-
-
-@dataclass
-class APICredential:
-    """API key credential (e.g., Claude, OpenRouter)."""
-
-    id: str
-    label: str
-    sdk: SDK
-    vendor: str
-    category: Category = "ai_provider"
-    key: str = ""
-    base_url: str | None = None
-    type: Literal["api"] = field(default="api", repr=False)
-
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {
-            "id": self.id,
-            "label": self.label,
-            "type": "api",
-            "category": self.category,
-            "sdk": self.sdk,
-            "vendor": self.vendor,
-            "key": self.key,
-        }
-        if self.base_url:
-            d["base_url"] = self.base_url
-        return d
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> APICredential:
-        return cls(
-            id=data.get("id", generate_id()),
-            label=data.get("label", ""),
-            sdk=data.get("sdk", "openai"),
-            vendor=data.get("vendor", ""),
-            category=data.get("category", "ai_provider"),
-            key=data.get("key", ""),
-            base_url=data.get("base_url"),
-        )
-
-
-# Union type
-Credential = OAuthCredential | APICredential
 
 # Storage path
 CONNECTIONS_PATH = Path.home() / ".config" / "glee" / "connections.yml"
@@ -267,8 +188,19 @@ class ConnectionStorage:
     def parse(data: dict[str, Any]) -> Credential | None:
         """Parse a dict into the appropriate credential type."""
         cred_type = data.get("type")
-        if cred_type == "oauth":
-            return OAuthCredential.from_dict(data)
+        # New types
+        if cred_type == "ai_oauth":
+            return AIProviderOAuthCredential.from_dict(data)
+        elif cred_type == "ai_api":
+            return AIProviderAPICredential.from_dict(data)
+        elif cred_type == "service":
+            return ServiceCredential.from_dict(data)
+        # Legacy types (backwards compatibility)
+        elif cred_type == "oauth":
+            return AIProviderOAuthCredential.from_dict(data)
         elif cred_type == "api":
-            return APICredential.from_dict(data)
+            # Check category to determine if it's AI provider or service
+            if data.get("category") == "service":
+                return ServiceCredential.from_dict(data)
+            return AIProviderAPICredential.from_dict(data)
         return None

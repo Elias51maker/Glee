@@ -1,4 +1,4 @@
-"""Tests for auth storage module."""
+"""Tests for connection storage module."""
 
 import os
 import tempfile
@@ -7,7 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
-from glee.auth import storage
+from glee.connect import storage
+from glee.connect.credential import (
+    AIProviderAPICredential,
+    AIProviderOAuthCredential,
+    ServiceCredential,
+    _generate_id,
+)
 
 
 @pytest.fixture
@@ -17,7 +23,7 @@ def temp_auth_file():
         temp_path = Path(f.name)
 
     # Patch the auth path to use temp file
-    with patch.object(storage, "_get_auth_path", return_value=temp_path):
+    with patch.object(storage.ConnectionStorage, "path", temp_path):
         yield temp_path
 
     # Cleanup
@@ -25,11 +31,11 @@ def temp_auth_file():
         os.unlink(temp_path)
 
 
-class TestAPICredential:
-    """Tests for APICredential dataclass."""
+class TestAIProviderAPICredential:
+    """Tests for AIProviderAPICredential dataclass."""
 
     def test_create_api_credential(self):
-        cred = storage.APICredential(
+        cred = AIProviderAPICredential(
             id="test123",
             label="my-openrouter",
             sdk="openai",
@@ -43,10 +49,11 @@ class TestAPICredential:
         assert cred.vendor == "openrouter"
         assert cred.key == "sk-or-xxx"
         assert cred.base_url == "https://openrouter.ai/api/v1"
-        assert cred.type == "api"
+        assert cred.type == "ai_api"
+        assert cred.category == "ai_provider"
 
     def test_to_dict(self):
-        cred = storage.APICredential(
+        cred = AIProviderAPICredential(
             id="test123",
             label="anthropic",
             sdk="anthropic",
@@ -56,7 +63,7 @@ class TestAPICredential:
         d = cred.to_dict()
         assert d["id"] == "test123"
         assert d["label"] == "anthropic"
-        assert d["type"] == "api"
+        assert d["type"] == "ai_api"
         assert d["sdk"] == "anthropic"
         assert d["vendor"] == "anthropic"
         assert d["key"] == "sk-ant-xxx"
@@ -66,13 +73,13 @@ class TestAPICredential:
         data = {
             "id": "abc123",
             "label": "groq",
-            "type": "api",
+            "type": "ai_api",
             "sdk": "openai",
             "vendor": "groq",
             "key": "gsk-xxx",
             "base_url": "https://api.groq.com/openai/v1",
         }
-        cred = storage.APICredential.from_dict(data)
+        cred = AIProviderAPICredential.from_dict(data)
         assert cred.id == "abc123"
         assert cred.label == "groq"
         assert cred.vendor == "groq"
@@ -80,11 +87,11 @@ class TestAPICredential:
         assert cred.base_url == "https://api.groq.com/openai/v1"
 
 
-class TestOAuthCredential:
-    """Tests for OAuthCredential dataclass."""
+class TestAIProviderOAuthCredential:
+    """Tests for AIProviderOAuthCredential dataclass."""
 
     def test_create_oauth_credential(self):
-        cred = storage.OAuthCredential(
+        cred = AIProviderOAuthCredential(
             id="oauth123",
             label="codex",
             sdk="openai",
@@ -102,13 +109,14 @@ class TestOAuthCredential:
         assert cred.access == "access-token"
         assert cred.expires == 1736956800000
         assert cred.account_id == "org-abc"
-        assert cred.type == "oauth"
+        assert cred.type == "ai_oauth"
+        assert cred.category == "ai_provider"
 
     def test_is_expired_not_expired(self):
         import time
 
         future_time = int((time.time() + 3600) * 1000)  # 1 hour from now
-        cred = storage.OAuthCredential(
+        cred = AIProviderOAuthCredential(
             id="test",
             label="codex",
             sdk="openai",
@@ -119,7 +127,7 @@ class TestOAuthCredential:
 
     def test_is_expired_expired(self):
         past_time = 1000  # Way in the past
-        cred = storage.OAuthCredential(
+        cred = AIProviderOAuthCredential(
             id="test",
             label="codex",
             sdk="openai",
@@ -129,7 +137,7 @@ class TestOAuthCredential:
         assert cred.is_expired()
 
     def test_is_expired_zero_never_expires(self):
-        cred = storage.OAuthCredential(
+        cred = AIProviderOAuthCredential(
             id="test",
             label="copilot",
             sdk="openai",
@@ -139,7 +147,7 @@ class TestOAuthCredential:
         assert not cred.is_expired()
 
     def test_to_dict(self):
-        cred = storage.OAuthCredential(
+        cred = AIProviderOAuthCredential(
             id="oauth123",
             label="codex",
             sdk="openai",
@@ -151,7 +159,7 @@ class TestOAuthCredential:
         )
         d = cred.to_dict()
         assert d["id"] == "oauth123"
-        assert d["type"] == "oauth"
+        assert d["type"] == "ai_oauth"
         assert d["refresh"] == "refresh-token"
         assert d["account_id"] == "org-abc"
 
@@ -159,153 +167,205 @@ class TestOAuthCredential:
         data = {
             "id": "oauth456",
             "label": "copilot",
-            "type": "oauth",
+            "type": "ai_oauth",
             "sdk": "openai",
             "vendor": "github",
             "refresh": "token",
             "access": "token",
             "expires": 0,
         }
-        cred = storage.OAuthCredential.from_dict(data)
+        cred = AIProviderOAuthCredential.from_dict(data)
         assert cred.id == "oauth456"
         assert cred.label == "copilot"
         assert cred.vendor == "github"
+
+
+class TestServiceCredential:
+    """Tests for ServiceCredential dataclass."""
+
+    def test_create_service_credential(self):
+        cred = ServiceCredential(
+            id="svc123",
+            label="github",
+            vendor="github",
+            key="ghp_xxx",
+            base_url="https://api.github.com",
+        )
+        assert cred.id == "svc123"
+        assert cred.label == "github"
+        assert cred.vendor == "github"
+        assert cred.key == "ghp_xxx"
+        assert cred.base_url == "https://api.github.com"
+        assert cred.type == "service"
+        assert cred.category == "service"
+        assert cred.sdk is None
+
+    def test_to_dict(self):
+        cred = ServiceCredential(
+            id="svc123",
+            label="github",
+            vendor="github",
+            key="ghp_xxx",
+            base_url="https://api.github.com",
+        )
+        d = cred.to_dict()
+        assert d["id"] == "svc123"
+        assert d["type"] == "service"
+        assert d["vendor"] == "github"
+        assert d["key"] == "ghp_xxx"
+        assert d["base_url"] == "https://api.github.com"
+        assert "sdk" not in d  # Services don't have SDK
+
+    def test_from_dict(self):
+        data = {
+            "id": "svc456",
+            "label": "github",
+            "type": "service",
+            "vendor": "github",
+            "key": "ghp_xxx",
+            "base_url": "https://api.github.com",
+        }
+        cred = ServiceCredential.from_dict(data)
+        assert cred.id == "svc456"
+        assert cred.label == "github"
+        assert cred.vendor == "github"
+        assert cred.sdk is None
 
 
 class TestStorageFunctions:
     """Tests for storage CRUD functions."""
 
     def test_add_and_get(self, temp_auth_file):
-        cred = storage.APICredential(
+        cred = AIProviderAPICredential(
             id="",
             label="test-api",
             sdk="openai",
             vendor="openrouter",
             key="test-key",
         )
-        added = storage.add(cred)
+        added = storage.ConnectionStorage.add(cred)
         assert added.id  # ID should be generated
 
-        retrieved = storage.get(added.id)
+        retrieved = storage.ConnectionStorage.get(added.id)
         assert retrieved is not None
         assert retrieved.label == "test-api"
         assert retrieved.key == "test-key"
 
     def test_all_empty(self, temp_auth_file):
-        creds = storage.all()
+        creds = storage.ConnectionStorage.all()
         assert creds == []
 
     def test_all_multiple(self, temp_auth_file):
-        storage.add(storage.APICredential(
+        storage.ConnectionStorage.add(AIProviderAPICredential(
             id="", label="cred1", sdk="openai", vendor="openrouter", key="key1"
         ))
-        storage.add(storage.APICredential(
+        storage.ConnectionStorage.add(AIProviderAPICredential(
             id="", label="cred2", sdk="anthropic", vendor="anthropic", key="key2"
         ))
-        storage.add(storage.OAuthCredential(
+        storage.ConnectionStorage.add(AIProviderOAuthCredential(
             id="", label="cred3", sdk="openai", vendor="openai"
         ))
 
-        creds = storage.all()
+        creds = storage.ConnectionStorage.all()
         assert len(creds) == 3
 
     def test_find_by_vendor(self, temp_auth_file):
-        storage.add(storage.APICredential(
+        storage.ConnectionStorage.add(AIProviderAPICredential(
             id="", label="or1", sdk="openai", vendor="openrouter", key="key1"
         ))
-        storage.add(storage.APICredential(
+        storage.ConnectionStorage.add(AIProviderAPICredential(
             id="", label="or2", sdk="openai", vendor="openrouter", key="key2"
         ))
-        storage.add(storage.APICredential(
+        storage.ConnectionStorage.add(AIProviderAPICredential(
             id="", label="ant", sdk="anthropic", vendor="anthropic", key="key3"
         ))
 
-        openrouter_creds = storage.find(vendor="openrouter")
+        openrouter_creds = storage.ConnectionStorage.find(vendor="openrouter")
         assert len(openrouter_creds) == 2
 
-        anthropic_creds = storage.find(vendor="anthropic")
+        anthropic_creds = storage.ConnectionStorage.find(vendor="anthropic")
         assert len(anthropic_creds) == 1
 
-    def test_find_by_vendor_and_type(self, temp_auth_file):
-        storage.add(storage.APICredential(
+    def test_find_by_vendor_and_category(self, temp_auth_file):
+        storage.ConnectionStorage.add(AIProviderAPICredential(
             id="", label="api", sdk="openai", vendor="openai", key="key1"
         ))
-        storage.add(storage.OAuthCredential(
-            id="", label="oauth", sdk="openai", vendor="openai"
+        storage.ConnectionStorage.add(ServiceCredential(
+            id="", label="github", vendor="github", key="ghp_xxx"
         ))
 
-        api_creds = storage.find(vendor="openai", type="api")
-        assert len(api_creds) == 1
-        assert api_creds[0].label == "api"
+        ai_creds = storage.ConnectionStorage.find(vendor="openai", category="ai_provider")
+        assert len(ai_creds) == 1
+        assert ai_creds[0].label == "api"
 
-        oauth_creds = storage.find(vendor="openai", type="oauth")
-        assert len(oauth_creds) == 1
-        assert oauth_creds[0].label == "oauth"
+        service_creds = storage.ConnectionStorage.find(vendor="github", category="service")
+        assert len(service_creds) == 1
+        assert service_creds[0].label == "github"
 
     def test_find_one(self, temp_auth_file):
-        storage.add(storage.APICredential(
+        storage.ConnectionStorage.add(AIProviderAPICredential(
             id="", label="test", sdk="openai", vendor="groq", key="key1"
         ))
 
-        cred = storage.find_one(vendor="groq")
+        cred = storage.ConnectionStorage.find_one(vendor="groq")
         assert cred is not None
         assert cred.label == "test"
 
-        no_cred = storage.find_one(vendor="nonexistent")
+        no_cred = storage.ConnectionStorage.find_one(vendor="nonexistent")
         assert no_cred is None
 
     def test_remove(self, temp_auth_file):
-        added = storage.add(storage.APICredential(
+        added = storage.ConnectionStorage.add(AIProviderAPICredential(
             id="", label="to-remove", sdk="openai", vendor="test", key="key"
         ))
 
-        assert storage.get(added.id) is not None
-        assert storage.remove(added.id) is True
-        assert storage.get(added.id) is None
+        assert storage.ConnectionStorage.get(added.id) is not None
+        assert storage.ConnectionStorage.remove(added.id) is True
+        assert storage.ConnectionStorage.get(added.id) is None
 
     def test_remove_nonexistent(self, temp_auth_file):
-        assert storage.remove("nonexistent-id") is False
+        assert storage.ConnectionStorage.remove("nonexistent-id") is False
 
     def test_update(self, temp_auth_file):
-        added = storage.add(storage.APICredential(
+        added = storage.ConnectionStorage.add(AIProviderAPICredential(
             id="", label="original", sdk="openai", vendor="test", key="old-key"
         ))
 
-        updated_cred = storage.APICredential(
+        updated_cred = AIProviderAPICredential(
             id=added.id,
             label="updated",
             sdk="openai",
             vendor="test",
             key="new-key",
         )
-        assert storage.update(added.id, updated_cred) is True
+        assert storage.ConnectionStorage.update(added.id, updated_cred) is True
 
-        retrieved = storage.get(added.id)
+        retrieved = storage.ConnectionStorage.get(added.id)
         assert retrieved is not None
         assert retrieved.label == "updated"
         assert retrieved.key == "new-key"
 
     def test_update_nonexistent(self, temp_auth_file):
-        cred = storage.APICredential(
+        cred = AIProviderAPICredential(
             id="fake", label="test", sdk="openai", vendor="test", key="key"
         )
-        assert storage.update("nonexistent", cred) is False
+        assert storage.ConnectionStorage.update("nonexistent", cred) is False
 
 
 class TestGenerateId:
     """Tests for ID generation."""
 
     def test_generate_id_length(self):
-        id1 = storage._generate_id()
+        id1 = _generate_id()
         assert len(id1) == 10
 
     def test_generate_id_alphanumeric(self):
-        id1 = storage._generate_id()
+        id1 = _generate_id()
         assert id1.isalnum()
         assert id1.islower() or id1.replace("0123456789", "").islower()
 
     def test_generate_id_unique(self):
-        ids = [storage._generate_id() for _ in range(100)]
+        ids = [_generate_id() for _ in range(100)]
         assert len(set(ids)) == 100  # All unique
 
 
@@ -322,3 +382,55 @@ class TestVendorUrls:
         for vendor, url in storage.VENDOR_URLS.items():
             assert url.startswith("http")
             assert "/v1" in url or vendor in ("ollama", "lmstudio")
+
+
+class TestLegacyParsing:
+    """Tests for backwards compatibility with legacy credential formats."""
+
+    def test_parse_legacy_oauth(self, temp_auth_file):
+        # Legacy oauth format should parse to AIProviderOAuthCredential
+        data = {
+            "id": "legacy1",
+            "label": "codex",
+            "type": "oauth",
+            "sdk": "openai",
+            "vendor": "openai",
+            "category": "ai_provider",
+        }
+        cred = storage.ConnectionStorage.parse(data)
+        assert cred is not None
+        assert isinstance(cred, AIProviderOAuthCredential)
+        assert cred.label == "codex"
+
+    def test_parse_legacy_api_ai_provider(self, temp_auth_file):
+        # Legacy api format with ai_provider category
+        data = {
+            "id": "legacy2",
+            "label": "anthropic",
+            "type": "api",
+            "sdk": "anthropic",
+            "vendor": "anthropic",
+            "category": "ai_provider",
+            "key": "sk-ant-xxx",
+        }
+        cred = storage.ConnectionStorage.parse(data)
+        assert cred is not None
+        assert isinstance(cred, AIProviderAPICredential)
+        assert cred.label == "anthropic"
+
+    def test_parse_legacy_api_service(self, temp_auth_file):
+        # Legacy api format with service category
+        data = {
+            "id": "legacy3",
+            "label": "github",
+            "type": "api",
+            "sdk": "github",
+            "vendor": "github",
+            "category": "service",
+            "key": "ghp_xxx",
+        }
+        cred = storage.ConnectionStorage.parse(data)
+        assert cred is not None
+        assert isinstance(cred, ServiceCredential)
+        assert cred.label == "github"
+        assert cred.sdk is None  # Services don't have SDK
