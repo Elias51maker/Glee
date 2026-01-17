@@ -1,5 +1,6 @@
 """Connect module for Glee connections."""
 
+from glee.connect.connection import ChatResponse, Connection
 from glee.connect.storage import (
     APICredential,
     ConnectionStorage,
@@ -11,6 +12,8 @@ from glee.connect.storage import (
 
 __all__ = [
     "APICredential",
+    "ChatResponse",
+    "Connection",
     "ConnectionStorage",
     "Credential",
     "OAuthCredential",

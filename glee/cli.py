@@ -1947,156 +1947,19 @@ def connect_test(
         console.print(padded(f"[{Theme.ERROR}]Credential not found: {id}[/{Theme.ERROR}]"))
         return
 
-    c = cred
-    label = f"{c.label} ({c.vendor})"
+    from glee.connect import Connection
+
+    label = f"{cred.label} ({cred.vendor})"
 
     console.print(padded(Text.assemble(
         ("🧪 ", "bold"),
         (f"Testing {label}", f"bold {Theme.PRIMARY}"),
     ), bottom=0))
 
-    # Simple test: send "Hi", expect a response
-    import httpx
-
     try:
-        if c.sdk == "openai":
-            # OpenAI-compatible API (Codex, Copilot, OpenRouter, etc.)
-            if isinstance(c, storage.OAuthCredential):
-                token = c.access
-                headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-                if c.account_id:
-                    headers["ChatGPT-Account-Id"] = c.account_id
-
-                if c.vendor == "github":
-                    # GitHub Copilot - uses chat completions
-                    resp = httpx.post(
-                        "https://api.githubcopilot.com/chat/completions",
-                        headers=headers,
-                        json={"model": "gpt-4o", "max_tokens": 100, "messages": [{"role": "user", "content": "Say Hello"}]},
-                        timeout=30,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    reply = data["choices"][0]["message"]["content"].strip()
-                else:
-                    # Codex OAuth - uses ChatGPT backend API with streaming
-                    url = "https://chatgpt.com/backend-api/codex/responses"
-                    codex_headers = {
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                    }
-                    if c.account_id:
-                        codex_headers["ChatGPT-Account-Id"] = c.account_id
-                    json_body = {
-                        "model": "gpt-5.1-codex-mini",
-                        "instructions": "You are a helpful assistant.",
-                        "input": [{"role": "user", "content": "Say Hello"}],
-                        "store": False,
-                        "stream": True,
-                    }
-                    with httpx.stream("POST", url, headers=codex_headers, json=json_body, timeout=30) as response:
-                        if response.status_code == 200:
-                            reply = ""
-                            for chunk in response.iter_lines():
-                                if chunk and chunk.startswith("data:"):
-                                    import json as json_module
-                                    try:
-                                        data = json_module.loads(chunk[5:].strip())
-                                        if data.get("type") == "response.output_text.delta":
-                                            reply += data.get("delta", "")
-                                    except json_module.JSONDecodeError:
-                                        pass
-                            if not reply:
-                                reply = "Connected (stream OK)"
-                        else:
-                            error_text = response.read().decode()[:200]
-                            raise Exception(f"HTTP {response.status_code}: {error_text}")
-            else:
-                # API key - uses chat completions
-                token = c.key
-                base_url = (c.base_url or "https://api.openai.com/v1").rstrip("/")
-                resp = httpx.post(
-                    f"{base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                    json={"model": "gpt-5-nano", "max_tokens": 100, "messages": [{"role": "user", "content": "Say Hello"}]},
-                    timeout=30,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                reply = data["choices"][0]["message"]["content"].strip()
-            console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {reply}"))
-
-        elif c.sdk == "anthropic":
-            if not isinstance(c, storage.APICredential):
-                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Anthropic requires API key"))
-                return
-
-            resp = httpx.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": c.key,
-                    "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json",
-                },
-                json={"model": "claude-sonnet-4-20250514", "max_tokens": 100, "messages": [{"role": "user", "content": "Say Hello"}]},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            reply = data["content"][0]["text"].strip()
-            console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {reply}"))
-
-        elif c.sdk == "vertex":
-            if not isinstance(c, storage.APICredential):
-                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Vertex requires project config"))
-                return
-
-            import google.auth
-            import google.auth.transport.requests
-
-            project_id = c.key
-            region = c.base_url or "us-central1"
-
-            credentials, _ = google.auth.default()  # type: ignore[attr-defined]
-            credentials.refresh(google.auth.transport.requests.Request())  # type: ignore[union-attr]
-
-            resp = httpx.post(
-                f"https://{region}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/publishers/google/models/gemini-2.0-flash:generateContent",
-                headers={"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"},  # type: ignore[union-attr]
-                json={"contents": [{"role": "user", "parts": [{"text": "Say Hello"}]}], "generationConfig": {"maxOutputTokens": 100}},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {reply}"))
-
-        elif c.sdk == "bedrock":
-            if not isinstance(c, storage.APICredential):
-                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Bedrock requires AWS config"))
-                return
-
-            import boto3
-            import json
-
-            region = c.base_url or "us-east-1"
-            bedrock = boto3.client("bedrock-runtime", region_name=region)  # type: ignore[attr-defined]
-
-            body = json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 100,
-                "messages": [{"role": "user", "content": "Say Hello"}],
-            })
-            response = bedrock.invoke_model(modelId="anthropic.claude-sonnet-4-20250514-v1:0", body=body)  # type: ignore[union-attr]
-            data = json.loads(response["body"].read())  # type: ignore[union-attr]
-            reply = data["content"][0]["text"].strip()
-            console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {reply}"))
-
-        else:
-            console.print(padded(f"[{Theme.WARNING}]?[/{Theme.WARNING}] Unknown SDK: {c.sdk}"))
-
-    except httpx.HTTPStatusError as e:
-        console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] {e.response.status_code}: {e.response.text[:200]}"))
+        conn = Connection(cred)
+        response = conn.chat("Say Hello")
+        console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {response.content}"))
     except Exception as e:
         console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] {e}"))
 
