@@ -264,6 +264,218 @@ async def list_tools() -> list[Tool]:
                 "required": ["review_id"],
             },
         ),
+        # GitHub Issues
+        Tool(
+            name="glee.github.fetch_issues",
+            description="Fetch issues from a GitHub repository. Returns paginated results with pagination info for navigation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "owner": {
+                        "type": "string",
+                        "description": "Repository owner (e.g., 'anthropics')",
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name (e.g., 'claude-code')",
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": ["open", "closed", "all"],
+                        "description": "Filter by state (default: open)",
+                    },
+                    "labels": {
+                        "type": "string",
+                        "description": "Comma-separated list of label names to filter by",
+                    },
+                    "sort": {
+                        "type": "string",
+                        "enum": ["created", "updated", "comments"],
+                        "description": "Sort by field (default: created)",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["asc", "desc"],
+                        "description": "Sort direction (default: desc)",
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Results per page, max 100 (default: 30)",
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                    },
+                },
+                "required": ["owner", "repo"],
+            },
+        ),
+        Tool(
+            name="glee.github.fetch_issue",
+            description="Fetch a single issue from a GitHub repository by number.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "owner": {
+                        "type": "string",
+                        "description": "Repository owner (e.g., 'anthropics')",
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name (e.g., 'claude-code')",
+                    },
+                    "number": {
+                        "type": "integer",
+                        "description": "Issue number",
+                    },
+                },
+                "required": ["owner", "repo", "number"],
+            },
+        ),
+        Tool(
+            name="glee.github.search_issues",
+            description="Search issues using GitHub search syntax. Can search across all repos or scope to a specific repo.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query using GitHub search syntax (e.g., 'bug label:high-priority')",
+                    },
+                    "owner": {
+                        "type": "string",
+                        "description": "Optional: Repository owner to scope search",
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional: Repository name to scope search (requires owner)",
+                    },
+                    "sort": {
+                        "type": "string",
+                        "enum": ["created", "updated", "comments"],
+                        "description": "Sort by field (default: created)",
+                    },
+                    "order": {
+                        "type": "string",
+                        "enum": ["asc", "desc"],
+                        "description": "Sort order (default: desc)",
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Results per page, max 100 (default: 30)",
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        # GitHub Pull Requests
+        Tool(
+            name="glee.github.fetch_prs",
+            description="Fetch pull requests from a GitHub repository. Returns paginated results with pagination info for navigation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "owner": {
+                        "type": "string",
+                        "description": "Repository owner (e.g., 'anthropics')",
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name (e.g., 'claude-code')",
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": ["open", "closed", "all"],
+                        "description": "Filter by state (default: open)",
+                    },
+                    "sort": {
+                        "type": "string",
+                        "enum": ["created", "updated", "popularity", "long-running"],
+                        "description": "Sort by field (default: created)",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["asc", "desc"],
+                        "description": "Sort direction (default: desc)",
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Results per page, max 100 (default: 30)",
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                    },
+                },
+                "required": ["owner", "repo"],
+            },
+        ),
+        Tool(
+            name="glee.github.fetch_pr",
+            description="Fetch a single pull request from a GitHub repository by number.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "owner": {
+                        "type": "string",
+                        "description": "Repository owner (e.g., 'anthropics')",
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name (e.g., 'claude-code')",
+                    },
+                    "number": {
+                        "type": "integer",
+                        "description": "PR number",
+                    },
+                },
+                "required": ["owner", "repo", "number"],
+            },
+        ),
+        Tool(
+            name="glee.github.search_prs",
+            description="Search pull requests using GitHub search syntax. Can search across all repos or scope to a specific repo.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query using GitHub search syntax (e.g., 'fix author:octocat')",
+                    },
+                    "owner": {
+                        "type": "string",
+                        "description": "Optional: Repository owner to scope search",
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Optional: Repository name to scope search (requires owner)",
+                    },
+                    "sort": {
+                        "type": "string",
+                        "enum": ["created", "updated", "comments"],
+                        "description": "Sort by field (default: created)",
+                    },
+                    "order": {
+                        "type": "string",
+                        "enum": ["asc", "desc"],
+                        "description": "Sort order (default: desc)",
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Results per page, max 100 (default: 30)",
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
     ]
 
 
@@ -296,6 +508,19 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await _handle_review_status()
     elif name == "glee.code_review.get":
         return await _handle_review_get(arguments)
+    # GitHub tools
+    elif name == "glee.github.fetch_issues":
+        return await _handle_github_fetch_issues(arguments)
+    elif name == "glee.github.fetch_issue":
+        return await _handle_github_fetch_issue(arguments)
+    elif name == "glee.github.search_issues":
+        return await _handle_github_search_issues(arguments)
+    elif name == "glee.github.fetch_prs":
+        return await _handle_github_fetch_prs(arguments)
+    elif name == "glee.github.fetch_pr":
+        return await _handle_github_fetch_pr(arguments)
+    elif name == "glee.github.search_prs":
+        return await _handle_github_search_prs(arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -1181,21 +1406,21 @@ def _build_task_prompt(
 async def _handle_review_status() -> list[TextContent]:
     """Handle glee.code_review.status tool call."""
     from glee.config import get_project_config
-    from glee.memory.store import MemoryStore
+    from glee.memory import Memory
 
     config = get_project_config()
     if not config:
         return [TextContent(type="text", text="Error: Project not initialized. Run 'glee init' first.")]
 
-    project_path = config.get("project_path", ".")
-    glee_dir = Path(project_path) / ".glee"
+    project_path: str = config.get("project", {}).get("path", ".")
 
     try:
-        memory = MemoryStore(str(glee_dir))
-        entries = memory.get_by_category("open_loop")
+        memory = Memory(project_path)
+        entries: list[dict[str, Any]] = memory.get_by_category("open_loop")
+        memory.close()
 
         # Filter to review items only
-        reviews = [
+        reviews: list[dict[str, Any]] = [
             e for e in entries
             if e.get("metadata") and e["metadata"].get("type") == "code_review"
         ]
@@ -1205,10 +1430,10 @@ async def _handle_review_status() -> list[TextContent]:
 
         lines = ["## Pending Reviews\n"]
         for r in reviews:
-            meta = r.get("metadata", {})
-            content = r.get("content", "")
-            memory_id = r.get("id", "")
-            review_id = meta.get("review_id", "unknown")
+            meta: dict[str, Any] = r.get("metadata", {})
+            content: str = r.get("content", "")
+            memory_id: str = r.get("id", "")
+            review_id: str = meta.get("review_id", "unknown")
             lines.append(f"- **{review_id}** (memory_id: {memory_id})")
             lines.append(f"  {content}")
             if meta.get("html_url"):
@@ -1228,7 +1453,7 @@ async def _handle_review_status() -> list[TextContent]:
 async def _handle_review_get(arguments: dict[str, Any]) -> list[TextContent]:
     """Handle glee.code_review.get tool call."""
     from glee.config import get_project_config
-    from glee.memory.store import MemoryStore
+    from glee.memory import Memory
 
     review_id = arguments.get("review_id")
     if not review_id:
@@ -1238,17 +1463,18 @@ async def _handle_review_get(arguments: dict[str, Any]) -> list[TextContent]:
     if not config:
         return [TextContent(type="text", text="Error: Project not initialized.")]
 
-    project_path = config.get("project_path", ".")
+    project_path: str = config.get("project", {}).get("path", ".")
     glee_dir = Path(project_path) / ".glee"
 
     # First try to find in open_loop memory
     try:
-        memory = MemoryStore(str(glee_dir))
-        entries = memory.get_by_category("open_loop")
+        memory = Memory(project_path)
+        entries: list[dict[str, Any]] = memory.get_by_category("open_loop")
+        memory.close()
         for e in entries:
-            meta = e.get("metadata", {})
+            meta: dict[str, Any] = e.get("metadata", {})
             if meta.get("review_id") == review_id:
-                result_path = meta.get("result_path")
+                result_path: str | None = meta.get("result_path")
                 if result_path and Path(result_path).exists():
                     content = Path(result_path).read_text()
                     return [TextContent(type="text", text=content)]
@@ -1262,6 +1488,314 @@ async def _handle_review_get(arguments: dict[str, Any]) -> list[TextContent]:
             return [TextContent(type="text", text=f.read_text())]
 
     return [TextContent(type="text", text=f"Review not found: {review_id}")]
+
+
+# -------------------------------------------------------------------------
+# GitHub Handlers
+# -------------------------------------------------------------------------
+
+
+def _format_issue(issue: Any) -> str:
+    """Format an issue for display."""
+    labels_str = ", ".join(issue.labels) if issue.labels else "none"
+    assignees_str = ", ".join(issue.assignees) if issue.assignees else "unassigned"
+    return (
+        f"#{issue.number}: {issue.title}\n"
+        f"  State: {issue.state} | Labels: {labels_str}\n"
+        f"  Author: {issue.user} | Assignees: {assignees_str}\n"
+        f"  Created: {issue.created_at} | Updated: {issue.updated_at}\n"
+        f"  URL: {issue.html_url}"
+    )
+
+
+def _format_pr(pr: Any) -> str:
+    """Format a PR for display."""
+    branch_info = ""
+    if pr.head_ref and pr.base_ref:
+        branch_info = f"  Branch: {pr.head_ref} -> {pr.base_ref}\n"
+    return (
+        f"#{pr.number}: {pr.title}\n"
+        f"  State: {pr.state} | Author: {pr.user}\n"
+        f"{branch_info}"
+        f"  URL: {pr.html_url}"
+    )
+
+
+def _format_pagination(pagination: dict[str, Any], current_page: int) -> str:
+    """Format pagination info for display."""
+    lines = ["\n--- Pagination ---"]
+    lines.append(f"Current page: {current_page}")
+    if pagination.get("last_page"):
+        lines.append(f"Total pages: {pagination['last_page']}")
+    if pagination.get("has_prev"):
+        lines.append(f"Previous page: {pagination['prev_page']}")
+    if pagination.get("has_next"):
+        lines.append(f"Next page: {pagination['next_page']}")
+    return "\n".join(lines)
+
+
+async def _handle_github_fetch_issues(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee.github.fetch_issues tool call."""
+    from glee.github import GitHubClient
+
+    owner = arguments.get("owner")
+    repo = arguments.get("repo")
+    if not owner or not repo:
+        return [TextContent(type="text", text="Error: owner and repo are required")]
+
+    state = arguments.get("state", "open")
+    labels = arguments.get("labels")
+    sort = arguments.get("sort", "created")
+    direction = arguments.get("direction", "desc")
+    per_page = arguments.get("per_page", 30)
+    page = arguments.get("page", 1)
+
+    try:
+        async with GitHubClient() as client:
+            issues, pagination = await client.list_issues(
+                owner=owner,
+                repo=repo,
+                state=state,
+                labels=labels,
+                sort=sort,
+                direction=direction,
+                per_page=per_page,
+                page=page,
+            )
+
+        if not issues:
+            return [TextContent(type="text", text=f"No issues found in {owner}/{repo} (state={state})")]
+
+        lines = [f"## Issues in {owner}/{repo} (state={state})", ""]
+        for issue in issues:
+            lines.append(_format_issue(issue))
+            lines.append("")
+
+        lines.append(_format_pagination(pagination, page))
+
+        return [TextContent(type="text", text="\n".join(lines))]
+    except ValueError as e:
+        return [TextContent(type="text", text=f"Error: {e}")]
+    except Exception as e:
+        logger.exception("Error fetching issues")
+        return [TextContent(type="text", text=f"Error fetching issues: {e}")]
+
+
+async def _handle_github_fetch_issue(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee.github.fetch_issue tool call."""
+    from glee.github import GitHubClient
+
+    owner = arguments.get("owner")
+    repo = arguments.get("repo")
+    number = arguments.get("number")
+    if not owner or not repo or not number:
+        return [TextContent(type="text", text="Error: owner, repo, and number are required")]
+
+    try:
+        async with GitHubClient() as client:
+            issue = await client.get_issue(owner, repo, number)
+
+        labels_str = ", ".join(issue.labels) if issue.labels else "none"
+        assignees_str = ", ".join(issue.assignees) if issue.assignees else "unassigned"
+
+        lines = [
+            f"## Issue #{issue.number}: {issue.title}",
+            "",
+            f"**State:** {issue.state}",
+            f"**Author:** {issue.user}",
+            f"**Labels:** {labels_str}",
+            f"**Assignees:** {assignees_str}",
+            f"**Created:** {issue.created_at}",
+            f"**Updated:** {issue.updated_at}",
+        ]
+        if issue.closed_at:
+            lines.append(f"**Closed:** {issue.closed_at}")
+        lines.append(f"**URL:** {issue.html_url}")
+        lines.append("")
+        lines.append("### Body")
+        lines.append("")
+        lines.append(issue.body or "(no description)")
+
+        return [TextContent(type="text", text="\n".join(lines))]
+    except ValueError as e:
+        return [TextContent(type="text", text=f"Error: {e}")]
+    except Exception as e:
+        logger.exception("Error fetching issue")
+        return [TextContent(type="text", text=f"Error fetching issue: {e}")]
+
+
+async def _handle_github_search_issues(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee.github.search_issues tool call."""
+    from glee.github import GitHubClient
+
+    query = arguments.get("query")
+    if not query:
+        return [TextContent(type="text", text="Error: query is required")]
+
+    owner = arguments.get("owner")
+    repo = arguments.get("repo")
+    sort = arguments.get("sort", "created")
+    order = arguments.get("order", "desc")
+    per_page = arguments.get("per_page", 30)
+    page = arguments.get("page", 1)
+
+    try:
+        async with GitHubClient() as client:
+            issues, total_count, pagination = await client.search_issues(
+                query=query,
+                owner=owner,
+                repo=repo,
+                sort=sort,
+                order=order,
+                per_page=per_page,
+                page=page,
+            )
+
+        scope = f"{owner}/{repo}" if owner and repo else "all repositories"
+        lines = [f"## Search Results: '{query}' in {scope}", f"Total matches: {total_count}", ""]
+
+        if not issues:
+            lines.append("No issues found matching your query.")
+        else:
+            for issue in issues:
+                lines.append(_format_issue(issue))
+                lines.append("")
+
+            lines.append(_format_pagination(pagination, page))
+
+        return [TextContent(type="text", text="\n".join(lines))]
+    except ValueError as e:
+        return [TextContent(type="text", text=f"Error: {e}")]
+    except Exception as e:
+        logger.exception("Error searching issues")
+        return [TextContent(type="text", text=f"Error searching issues: {e}")]
+
+
+async def _handle_github_fetch_prs(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee.github.fetch_prs tool call."""
+    from glee.github import GitHubClient
+
+    owner = arguments.get("owner")
+    repo = arguments.get("repo")
+    if not owner or not repo:
+        return [TextContent(type="text", text="Error: owner and repo are required")]
+
+    state = arguments.get("state", "open")
+    sort = arguments.get("sort", "created")
+    direction = arguments.get("direction", "desc")
+    per_page = arguments.get("per_page", 30)
+    page = arguments.get("page", 1)
+
+    try:
+        async with GitHubClient() as client:
+            prs, pagination = await client.list_prs(
+                owner=owner,
+                repo=repo,
+                state=state,
+                sort=sort,
+                direction=direction,
+                per_page=per_page,
+                page=page,
+            )
+
+        if not prs:
+            return [TextContent(type="text", text=f"No pull requests found in {owner}/{repo} (state={state})")]
+
+        lines = [f"## Pull Requests in {owner}/{repo} (state={state})", ""]
+        for pr in prs:
+            lines.append(_format_pr(pr))
+            lines.append("")
+
+        lines.append(_format_pagination(pagination, page))
+
+        return [TextContent(type="text", text="\n".join(lines))]
+    except ValueError as e:
+        return [TextContent(type="text", text=f"Error: {e}")]
+    except Exception as e:
+        logger.exception("Error fetching PRs")
+        return [TextContent(type="text", text=f"Error fetching PRs: {e}")]
+
+
+async def _handle_github_fetch_pr(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee.github.fetch_pr tool call."""
+    from glee.github import GitHubClient
+
+    owner = arguments.get("owner")
+    repo = arguments.get("repo")
+    number = arguments.get("number")
+    if not owner or not repo or not number:
+        return [TextContent(type="text", text="Error: owner, repo, and number are required")]
+
+    try:
+        async with GitHubClient() as client:
+            pr = await client.get_pr(owner, repo, number)
+
+        lines = [
+            f"## PR #{pr.number}: {pr.title}",
+            "",
+            f"**State:** {pr.state}",
+            f"**Author:** {pr.user}",
+            f"**Branch:** {pr.head_ref} -> {pr.base_ref}",
+            f"**URL:** {pr.html_url}",
+            "",
+            "### Body",
+            "",
+            pr.body or "(no description)",
+        ]
+
+        return [TextContent(type="text", text="\n".join(lines))]
+    except ValueError as e:
+        return [TextContent(type="text", text=f"Error: {e}")]
+    except Exception as e:
+        logger.exception("Error fetching PR")
+        return [TextContent(type="text", text=f"Error fetching PR: {e}")]
+
+
+async def _handle_github_search_prs(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee.github.search_prs tool call."""
+    from glee.github import GitHubClient
+
+    query = arguments.get("query")
+    if not query:
+        return [TextContent(type="text", text="Error: query is required")]
+
+    owner = arguments.get("owner")
+    repo = arguments.get("repo")
+    sort = arguments.get("sort", "created")
+    order = arguments.get("order", "desc")
+    per_page = arguments.get("per_page", 30)
+    page = arguments.get("page", 1)
+
+    try:
+        async with GitHubClient() as client:
+            prs, total_count, pagination = await client.search_prs(
+                query=query,
+                owner=owner,
+                repo=repo,
+                sort=sort,
+                order=order,
+                per_page=per_page,
+                page=page,
+            )
+
+        scope = f"{owner}/{repo}" if owner and repo else "all repositories"
+        lines = [f"## Search Results: '{query}' in {scope}", f"Total matches: {total_count}", ""]
+
+        if not prs:
+            lines.append("No pull requests found matching your query.")
+        else:
+            for pr in prs:
+                lines.append(_format_pr(pr))
+                lines.append("")
+
+            lines.append(_format_pagination(pagination, page))
+
+        return [TextContent(type="text", text="\n".join(lines))]
+    except ValueError as e:
+        return [TextContent(type="text", text=f"Error: {e}")]
+    except Exception as e:
+        logger.exception("Error searching PRs")
+        return [TextContent(type="text", text=f"Error searching PRs: {e}")]
 
 
 async def run_server():

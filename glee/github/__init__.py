@@ -8,13 +8,14 @@ Provides:
 """
 
 from glee.github.auth import get_token, require_token
-from glee.github.client import GitHubClient, PR, PRFile, Review, ReviewComment
+from glee.github.client import GitHubClient, Issue, PR, PRFile, Review, ReviewComment
 from glee.github.diff import parse_patch, get_added_lines, format_diff_for_review
 
 __all__ = [
     "get_token",
     "require_token",
     "GitHubClient",
+    "Issue",
     "PR",
     "PRFile",
     "Review",
