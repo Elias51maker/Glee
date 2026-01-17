@@ -120,13 +120,13 @@ We're building more tools. Here's what's coming:
 - [ ] **GitHub tools** — PR reviews, issue tracking
 - [ ] **More integrations** — What do you need?
 
-[Request a feature →](https://github.com/AgenticHacker/glee-code/issues)
+[Request a feature →](https://github.com/GleeMCP/Glee/issues)
 
 ## Development
 
 ```bash
-git clone https://github.com/AgenticHacker/glee-code
-cd glee-code
+git clone https://github.com/GleeMCP/Glee
+cd glee
 uv sync
 uv run glee --help
 ```
