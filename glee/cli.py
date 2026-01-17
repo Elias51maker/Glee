@@ -2256,5 +2256,40 @@ def connect_copilot():
     _do_copilot_oauth()
 
 
+@connect_app.command("github")
+def connect_github():
+    """Connect GitHub (Personal Access Token).
+
+    Examples:
+        glee connect github
+    """
+    from rich.prompt import Prompt
+
+    from glee.connect import storage
+
+    console.print()
+    console.print(f"  [{Theme.MUTED}]GitHub Personal Access Token[/{Theme.MUTED}]")
+    console.print(f"  [{Theme.MUTED}]Create at: https://github.com/settings/tokens[/{Theme.MUTED}]")
+    console.print(f"  [{Theme.MUTED}]Scopes needed: repo, read:org[/{Theme.MUTED}]")
+    console.print()
+    token = Prompt.ask(f"  [{Theme.PRIMARY}]Token[/{Theme.PRIMARY}]", password=True)
+    if token:
+        existing = storage.ConnectionStorage.find_one("github")
+        credential = storage.APICredential(
+            id=existing.id if existing else "",
+            label="github",
+            sdk="github",
+            vendor="github",
+            category="service",
+            key=token,
+            base_url="https://api.github.com",
+        )
+        if existing:
+            storage.ConnectionStorage.update(existing.id, credential)
+        else:
+            storage.ConnectionStorage.add(credential)
+        console.print(f"  [{Theme.SUCCESS}]✓ GitHub connected[/{Theme.SUCCESS}]")
+
+
 if __name__ == "__main__":
     app()
